@@ -12,7 +12,7 @@ export function SampleSpeaker({ speaking, caption, speaker }: { speaking: boolea
           </span>
         </span>
         <p className="font-mono text-sm uppercase tracking-[0.12em] text-[#c9d4e6]">{speaking ? `${speaker ?? "Speaker"} is speaking` : "Sample speaker"}</p>
-        <p className="max-w-md px-6 text-center text-sm text-[#a3b0c5]">Sample voice for the demo. For live video, go live from Organizer view in another window.</p>
+        <p className="max-w-md px-6 text-center text-sm text-[#a3b0c5]">Sample talk with a neural voice. For live video, go live from Organizer view in another window.</p>
       </div>
       <span className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-[#c2331f] px-3 py-1 text-sm font-bold">
         <span className="live-dot" aria-hidden="true" /> Live from Main stage

@@ -37,6 +37,7 @@ import { AVPanel } from "./AVPanel";
 import { DemoDock, type View } from "./DemoDock";
 import { Insights } from "./Insights";
 import { SampleSpeaker } from "./SampleSpeaker";
+import { SAMPLE_VOICE } from "./sampleVoice";
 import { TagsContext, TrackTag } from "./tags";
 import { Presenter } from "./Presenter";
 import { signals } from "./live";
@@ -117,6 +118,8 @@ export function App() {
   const [speaking, setSpeaking] = useState(false);
   const [demoNote, setDemoNote] = useState("");
   const spokenRef = useRef("");
+  const audioQueue = useRef<string[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -189,23 +192,42 @@ export function App() {
   const missed = paused ? segments.length - frozen : 0;
   const { now, next } = nowAndNext(minutes);
 
-  // Demo sample speaker: a browser voice reads each new line aloud, in English, like a real speaker would.
+  // Demo sample speaker: each sample line plays its pre-recorded neural voice; other lines fall back to the browser voice.
+  function playNext() {
+    if (audioRef.current) return;
+    const src = audioQueue.current.shift();
+    if (!src) return setSpeaking(false);
+    const a = new Audio(src);
+    audioRef.current = a;
+    setSpeaking(true);
+    const done = () => {
+      audioRef.current = null;
+      playNext();
+    };
+    a.onended = done;
+    a.onerror = done;
+    a.play().catch(done);
+  }
   useEffect(() => {
-    if (!voice || !latest || spokenRef.current === latest.id || !("speechSynthesis" in window)) return;
+    if (!voice || !latest || spokenRef.current === latest.id) return;
     spokenRef.current = latest.id;
+    const src = SAMPLE_VOICE[latest.text];
+    if (src) {
+      audioQueue.current.push(src);
+      playNext();
+      return;
+    }
+    if (!("speechSynthesis" in window)) return;
     const u = new SpeechSynthesisUtterance(latest.text);
     u.lang = "en-US";
-    // Prefer the most natural voice installed (Premium, Enhanced or Siri voices on a Mac, Google voices in Chrome).
     const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.startsWith("en"));
     const prefer = [/premium/i, /enhanced/i, /natural/i, /neural/i, /siri/i, /Google US English/i, /Samantha/i, /Ava/i, /Daniel/i];
     const best = prefer.map((re) => voices.find((v) => re.test(v.name))).find(Boolean) ?? voices.find((v) => v.lang === "en-US");
     if (best) u.voice = best;
-    u.rate = 1;
-    u.pitch = 1;
     u.onstart = () => setSpeaking(true);
     u.onend = () => setSpeaking(false);
     window.speechSynthesis.speak(u);
-  }, [voice, latest]);
+  }, [voice, latest]); // eslint-disable-line react-hooks/exhaustive-deps
   // Voices load asynchronously in some browsers; ask early so the first line does not use the fallback voice.
   useEffect(() => {
     if ("speechSynthesis" in window) window.speechSynthesis.getVoices();
@@ -216,7 +238,7 @@ export function App() {
     setView("participant");
     setRoomId("main");
     api
-      .replay("main", sessionStorage.getItem("presenterKey") ?? undefined, 6500)
+      .replay("main", sessionStorage.getItem("presenterKey") ?? undefined, 7600)
       .then((r) => setDemoNote(`Sample speaker is reading ${r.queued} lines on the Main stage.`))
       .catch((e: Error) => setDemoNote(`Could not start the sample: ${e.message}`));
   }
@@ -224,6 +246,9 @@ export function App() {
     setVoice(false);
     setSpeaking(false);
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    audioQueue.current = [];
+    audioRef.current?.pause();
+    audioRef.current = null;
     setDemoNote("");
   }
   const left = countdown(minutes);
