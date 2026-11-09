@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.7.0",
     "@elastic/elasticsearch": "^8.19.2",
     "@fastify/cors": "latest",
     "@opentelemetry/api": "latest",

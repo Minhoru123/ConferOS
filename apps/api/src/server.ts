@@ -4,6 +4,8 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Bus } from "./bus.js";
+import { RoomSigners } from "./live/signs/liveSigner.js";
+import type { SignTranslation, SignTranslator } from "./live/signs/translator.js";
 import { SAMPLE_LINES } from "./seed.js";
 import { NotFoundError, type Store } from "./store.js";
 import type { Answer, ChatMessage, Room, Segment } from "./types.js";
@@ -51,10 +53,14 @@ export interface Deps {
   dev?: boolean;
   /** When set, adding lines needs this value in the x-presenter-key header. Defaults to PRESENTER_KEY. */
   presenterKey?: string;
+  /** Turns on the signing avatar. */
+  signTranslator?: SignTranslator;
+  signBus?: Bus<SignTranslation>;
 }
 
-export async function buildServer({ store, bus = new Bus<Segment>(), chat = new Bus<ChatMessage>(), dev = false, presenterKey }: Deps) {
+export async function buildServer({ store, bus = new Bus<Segment>(), chat = new Bus<ChatMessage>(), dev = false, presenterKey, signTranslator, signBus = new Bus<SignTranslation>() }: Deps) {
   const key = presenterKey ?? process.env.PRESENTER_KEY ?? "";
+  const signers = signTranslator ? new RoomSigners(signTranslator, signBus) : null;
   const messages = new Map<string, ChatMessage[]>();
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
   await app.register(cors, { origin: true });
@@ -133,6 +139,7 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
         span.setAttributes({ "room.id": req.params.id, "segment.chars": input.text.length });
         const seg = await store.addSegment(req.params.id, input);
         bus.publish(req.params.id, seg);
+        signers?.add(req.params.id, seg.id, seg.text, true);
         linesAdded.add(1, { source: input.source ?? "typed" });
         if (input.lagMs !== undefined) captionLag.record(input.lagMs, { source: input.source ?? "typed" });
         return reply.code(201).send(seg);
@@ -168,6 +175,28 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
     });
   });
 
+  // Separate from the stream above: being connected here is what turns signing on for the room.
+  app.get<{ Params: { id: string }; Querystring: { code?: string } }>("/api/rooms/:id/signs", async (req, reply) => {
+    const { id } = req.params;
+    await readable(id, req.query.code);
+    reply.hijack();
+    const res = reply.raw;
+    res.writeHead(200, {
+      ...(reply.getHeaders() as Record<string, string>),
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.write(": connected\n\n");
+    const off = signBus.subscribe(id, (item) => res.write(`event: signs\ndata: ${JSON.stringify(item)}\n\n`));
+    const beat = setInterval(() => res.write(": keep-alive\n\n"), 15000);
+    req.raw.on("close", () => {
+      clearInterval(beat);
+      off();
+    });
+  });
+
   app.post<{ Params: { id: string }; Querystring: { code?: string } }>("/api/rooms/:id/ask", async (req): Promise<Answer> => {
     const { question } = askBody.parse(req.body);
     await readable(req.params.id, req.query.code);
@@ -200,7 +229,13 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
       const every = Math.max(200, Number(req.query.everyMs ?? 3000));
       lines.forEach((l, i) => {
         setTimeout(() => {
-          store.addSegment(req.params.id, l).then((seg) => bus.publish(req.params.id, seg)).catch((e) => app.log.error(e));
+          store
+            .addSegment(req.params.id, l)
+            .then((seg) => {
+              bus.publish(req.params.id, seg);
+              signers?.add(req.params.id, seg.id, seg.text, true);
+            })
+            .catch((e) => app.log.error(e));
         }, i * every);
       });
       return reply.code(202).send({ queued: lines.length, everyMs: every });

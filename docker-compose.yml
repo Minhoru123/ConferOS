@@ -19,6 +19,7 @@ services:
     environment:
       - ELASTICSEARCH_URL=http://elasticsearch:9200
       - NODE_ENV=development
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     ports:
       - "8787:8787"
     restart: unless-stopped

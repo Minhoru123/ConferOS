@@ -121,6 +121,15 @@ Traces appear under the service `backchannel-api`. Never commit the token.
 - Live updates and chat are fanned out inside one API process, so the API runs as one replica. A large event needs shared fan-out such as Redis pub/sub.
 - The AI answers with the best matching line from the transcript. Generated answers and summaries are next.
 
+## Signing avatar (experimental)
+
+Press **Sign language avatar** on the caption stage and each transcript line is also signed in the browser. The API only translates while someone has the avatar on.
+
+- Claude picks which signs to use from a fixed vocabulary of 833 signs and cannot invent movements. Without `ANTHROPIC_API_KEY`, the avatar signs word by word.
+- **This is not American Sign Language.** The vocabulary mixes signs from several sign languages (ISL, BSL, Auslan), and no signers have reviewed the output. It is a technical experiment and does not replace an interpreter.
+- Credits: the sign vocabulary comes from Avatar-Generator-FYP (MIT). The avatar is CWASA from the University of East Anglia (CC BY-NC-ND), loaded unmodified from its own server.
+- Prior work: the translator, lexicon loader and avatar player were adapted from TalkLens, a project written before this hackathon.
+
 ## AI assistance
 
 As the hackathon rules ask, we disclose that this project was built with help from AI coding assistants. Claude Code helped plan the project and write code and documentation, and Gitar reviewed every pull request. The team reviewed and tested the changes.

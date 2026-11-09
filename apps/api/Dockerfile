@@ -16,6 +16,7 @@ COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 RUN npm ci --omit=dev -w apps/api
 COPY --from=build /app/apps/api/dist apps/api/dist
+COPY apps/api/data apps/api/data
 USER node
 EXPOSE 8787
 CMD ["node", "apps/api/dist/index.js"]
