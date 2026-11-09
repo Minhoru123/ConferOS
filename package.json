@@ -13,6 +13,9 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.83.0",
+    "@opentelemetry/sdk-node": "^0.301.1",
     "express": "5.1.0"
   }
 }

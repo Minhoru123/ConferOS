@@ -1,0 +1,53 @@
+# The transcript lives in this process's memory and viewers connect to it over server-sent events, so the app
+# runs as ONE replica and replaces its pod with Recreate (a rolling update would briefly run two pods that
+# disagree about the transcript). Scaling out needs the transcript and the stream moved into shared storage.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conferos
+  labels: { app: conferos }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: conferos }
+  template:
+    metadata:
+      labels: { app: conferos }
+    spec:
+      containers:
+        - name: conferos
+          image: conferos:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - { name: ELASTIC_URL, value: "http://elasticsearch:9200" }
+            - { name: OTEL_SERVICE_NAME, value: conferos }
+          # Optional Secrets. Create them as described in the README, then restart the deployment.
+          #   conferos: PRESENTER_KEY, OPENAI_API_KEY, ELASTIC_API_KEY
+          #   otel: OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_HEADERS
+          envFrom:
+            - secretRef: { name: conferos, optional: true }
+            - secretRef: { name: otel, optional: true }
+          readinessProbe:
+            httpGet: { path: /api/pace, port: 3000 }
+          livenessProbe:
+            httpGet: { path: /api/pace, port: 3000 }
+            initialDelaySeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: conferos
+spec:
+  type: NodePort
+  selector: { app: conferos }
+  ports:
+    - port: 80
+      targetPort: 3000
+      nodePort: 30080

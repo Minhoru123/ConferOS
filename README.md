@@ -64,3 +64,45 @@ npm test
 
 - Several features follow TalkLens (https://github.com/luisgard/talklens, MIT), which a teammate built at this hackathon.
 - We used AI coding assistants (Claude Code) while building this project, as the hackathon rules ask us to disclose.
+
+## Deploy
+
+### Docker
+
+```bash
+docker compose --profile app up --build
+```
+
+The app is at http://localhost:3000 with Elasticsearch behind it. Put keys in `.env`.
+
+### Kubernetes with kind
+
+```bash
+kind create cluster --name conferos --config deploy/kind.yaml
+docker build -t conferos:dev .
+kind load docker-image conferos:dev --name conferos
+kubectl apply -k deploy/k8s
+```
+
+The app is then at http://localhost:8081. It runs as one replica, because the transcript and the live stream are held in the server's memory.
+
+Optional Secrets, then `kubectl rollout restart deploy/conferos`:
+
+```bash
+kubectl create secret generic conferos \
+  --from-literal=PRESENTER_KEY=choose-a-key \
+  --from-literal=OPENAI_API_KEY=...
+kubectl create secret generic otel \
+  --from-literal=OTEL_EXPORTER_OTLP_ENDPOINT=... \
+  --from-literal=OTEL_EXPORTER_OTLP_HEADERS='Authorization=Bearer ...'
+```
+
+### Observability
+
+`server/telemetry.js` sends traces, logs and metrics over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (use the endpoint and token from your Dash0 account). It also records `backchannel.lines` (lines added, by source) and `backchannel.caption.lag` (how late microphone captions arrive, in ms).
+
+### CI
+
+`.github/workflows/ci.yml` runs the tests and builds the image on every pull request.
+
+See [docs/plan.md](docs/plan.md) for the submission plan.

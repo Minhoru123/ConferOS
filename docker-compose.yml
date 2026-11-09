@@ -1,0 +1,28 @@
+# Local development. Elasticsearch runs with security off. Do not expose this outside your machine.
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+
+  app:
+    profiles: ["app"]
+    build: .
+    environment:
+      - ELASTIC_URL=http://elasticsearch:9200
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "3000:3000"
+    depends_on:
+      - elasticsearch
+
+volumes:
+  esdata:
