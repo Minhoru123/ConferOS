@@ -69,3 +69,18 @@ deploy        kind config and Kubernetes manifests
 design        Clickable prototype
 kb            Goals and plan
 ```
+
+## Live captions
+
+Open **Presenter tools** under the transcript, press **Start captions from microphone**, and allow the microphone. Each finished phrase becomes a transcript line within about a second, and every viewer sees it live. It uses the browser's built-in speech recognition, so it needs Chrome or Edge, and the page must be on localhost or HTTPS. The audio goes to the browser's speech service, not to this app. You can also type a line, or replay a sample talk.
+
+Set `PRESENTER_KEY` on the API to stop other people from adding lines. When it is set, the presenter tools ask for the key. Reading, searching and asking stay open. On Kubernetes, create it as the optional `presenter` Secret:
+
+```bash
+kubectl create secret generic presenter --from-literal=PRESENTER_KEY=choose-a-key
+kubectl rollout restart deploy/api
+```
+
+For each microphone line the app records `backchannel.caption.lag` (milliseconds between the last partial caption and the final text) and counts lines in `backchannel.lines`, both sent to Dash0 when telemetry is on. The lag is measured in the presenter's browser, so it is a caption-finalization delay, not the full time from speech to every viewer's screen.
+
+Reading controls on the transcript page: text size, high contrast, pause with a count of missed lines and a jump back to live, search, and an off-by-default switch for reading new lines aloud to a screen reader.
