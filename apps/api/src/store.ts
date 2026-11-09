@@ -51,6 +51,7 @@ export class MemoryStore implements Store {
       audio: input.audio ?? true,
       priv: input.priv ?? false,
       createdAt: new Date().toISOString(),
+      ...(input.priv ? { code: randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase() } : {}),
     };
     this.rooms.set(room.id, room);
     this.segs.set(room.id, []);

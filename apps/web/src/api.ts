@@ -6,6 +6,7 @@ export interface Room {
   video: boolean;
   audio: boolean;
   priv: boolean;
+  code?: string;
 }
 export interface Segment {
   id: string;
@@ -24,10 +25,24 @@ export interface NewLine {
   source: "mic" | "typed";
   lagMs?: number;
 }
+export interface Citation {
+  seq: number;
+  ts: string;
+  speaker: string;
+}
 export interface Answer {
   answer: string;
-  citations: { seq: number; ts: string; speaker: string }[];
+  citations: Citation[];
   mode: "extractive";
+}
+export interface ChatMessage {
+  id: string;
+  roomId: string;
+  author: string;
+  text: string;
+  ts: string;
+  bot?: boolean;
+  citations?: Citation[];
 }
 
 export class ApiError extends Error {
@@ -37,24 +52,33 @@ export class ApiError extends Error {
 }
 
 async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(res.status, body.error ?? `${res.status} ${res.statusText}`);
+  }
   return (await res.json()) as T;
 }
 
-const jsonHeaders = (key?: string): HeadersInit => ({ "Content-Type": "application/json", ...(key ? { "x-presenter-key": key } : {}) });
+const headers = (key?: string): HeadersInit => ({ "Content-Type": "application/json", ...(key ? { "x-presenter-key": key } : {}) });
+const withCode = (code?: string) => (code ? `?code=${encodeURIComponent(code)}` : "");
 
 export const api = {
   config: () => fetch("/api/config").then(json<{ presenterKeyRequired: boolean }>),
   rooms: () => fetch("/api/rooms").then(json<Room[]>),
-  segments: (id: string) => fetch(`/api/rooms/${id}/segments`).then(json<Segment[]>),
-  ask: (id: string, question: string) =>
-    fetch(`/api/rooms/${id}/ask`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ question }) }).then(json<Answer>),
-  addLine: (id: string, line: NewLine, key?: string) =>
-    fetch(`/api/rooms/${id}/segments`, { method: "POST", headers: jsonHeaders(key), body: JSON.stringify(line) }).then(json<Segment>),
-  replay: (id: string, key?: string) => fetch(`/api/dev/replay/${id}?everyMs=2500`, { method: "POST", headers: jsonHeaders(key) }).then(json<{ queued: number }>),
-  stream: (id: string, onSegment: (s: Segment) => void) => {
-    const es = new EventSource(`/api/rooms/${id}/stream`);
-    es.addEventListener("segment", (e) => onSegment(JSON.parse((e as MessageEvent<string>).data) as Segment));
+  createRoom: (name: string, kind: "focus" | "team", priv: boolean) =>
+    fetch("/api/rooms", { method: "POST", headers: headers(), body: JSON.stringify({ name, kind, priv }) }).then(json<Room>),
+  joinRoom: (code: string) => fetch("/api/rooms/join", { method: "POST", headers: headers(), body: JSON.stringify({ code }) }).then(json<Room>),
+  segments: (id: string, code?: string) => fetch(`/api/rooms/${id}/segments${withCode(code)}`).then(json<Segment[]>),
+  messages: (id: string, code?: string) => fetch(`/api/rooms/${id}/messages${withCode(code)}`).then(json<ChatMessage[]>),
+  sendMessage: (id: string, author: string, text: string, code?: string) =>
+    fetch(`/api/rooms/${id}/messages${withCode(code)}`, { method: "POST", headers: headers(), body: JSON.stringify({ author, text }) }).then(json<ChatMessage>),
+  addLine: (id: string, line: NewLine, key?: string, code?: string) =>
+    fetch(`/api/rooms/${id}/segments${withCode(code)}`, { method: "POST", headers: headers(key), body: JSON.stringify(line) }).then(json<Segment>),
+  replay: (id: string, key?: string) => fetch(`/api/dev/replay/${id}?everyMs=2500`, { method: "POST", headers: headers(key) }).then(json<{ queued: number }>),
+  stream: (id: string, code: string | undefined, on: { segment: (s: Segment) => void; message: (m: ChatMessage) => void }) => {
+    const es = new EventSource(`/api/rooms/${id}/stream${withCode(code)}`);
+    es.addEventListener("segment", (e) => on.segment(JSON.parse((e as MessageEvent<string>).data) as Segment));
+    es.addEventListener("message", (e) => on.message(JSON.parse((e as MessageEvent<string>).data) as ChatMessage));
     return () => es.close();
   },
 };

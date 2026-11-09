@@ -9,6 +9,8 @@ export interface Room {
   audio: boolean;
   priv: boolean;
   createdAt: string;
+  /** Join code for a private team zone. Only returned to whoever created or joined it. */
+  code?: string;
 }
 
 export interface Segment {
@@ -40,6 +42,17 @@ export interface NewRoom {
   video?: boolean;
   audio?: boolean;
   priv?: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  roomId: string;
+  author: string;
+  text: string;
+  ts: string;
+  /** True for answers from the AI assistant. */
+  bot?: boolean;
+  citations?: Citation[];
 }
 
 export interface Citation {

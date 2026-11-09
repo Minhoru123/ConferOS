@@ -1,3 +1,4 @@
+import { Mic, MicOff, PlayCircle, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import { Button } from "./components/ui/button";
@@ -43,7 +44,7 @@ function describeError(code: string): string {
  * Microphone captions use the browser's built-in speech recognition (Chrome or Edge). The audio goes to the
  * browser vendor's speech service, not to this app. It only works on localhost or HTTPS.
  */
-export function Presenter({ roomId }: { roomId: string }) {
+export function Presenter({ roomId, code }: { roomId: string; code?: string }) {
   const [keyRequired, setKeyRequired] = useState(false);
   const [key, setKey] = useState(() => sessionStorage.getItem("presenterKey") ?? "");
   const [speaker, setSpeaker] = useState("Speaker");
@@ -55,7 +56,10 @@ export function Presenter({ roomId }: { roomId: string }) {
 
   const wantRef = useRef(false);
   const recRef = useRef<Recognizer | null>(null);
+  const flushRef = useRef<(() => void) | null>(null);
   const roomRef = useRef(roomId);
+  const codeRef = useRef(code);
+  codeRef.current = code;
   const keyRef = useRef(key);
   const speakerRef = useRef(speaker);
   roomRef.current = roomId;
@@ -68,13 +72,16 @@ export function Presenter({ roomId }: { roomId: string }) {
 
   function send(text: string, source: "mic" | "typed", lagMs?: number, room = roomRef.current) {
     api
-      .addLine(room, { speaker: speakerRef.current.trim() || "Speaker", text, source, ...(lagMs !== undefined ? { lagMs } : {}) }, keyRef.current || undefined)
+      .addLine(room, { speaker: speakerRef.current.trim() || "Speaker", text, source, ...(lagMs !== undefined ? { lagMs } : {}) }, keyRef.current || undefined, codeRef.current)
       .then(() => setSent((n) => n + 1))
       .catch((e: Error) => setError(e instanceof ApiError && e.status === 401 ? "The presenter key is missing or wrong." : `Could not send the line: ${e.message}`));
   }
 
   function stop() {
     wantRef.current = false;
+    // Send whatever was said before stopping, to the room it was said in.
+    flushRef.current?.();
+    flushRef.current = null;
     const rec = recRef.current;
     if (rec) {
       // Drop any final result the browser still delivers after stop, so it cannot land in another room.
@@ -96,19 +103,39 @@ export function Presenter({ roomId }: { roomId: string }) {
     rec.lang = "en-US";
     const room = roomRef.current;
     let lastInterim = 0;
+    // Browsers finalize speech at every short pause, so join the pieces into one line per sentence or pause.
+    const PAUSE_MS = 1400;
+    let buffer = "";
+    let bufferLag = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      const text = buffer.trim();
+      buffer = "";
+      if (text) send(text.charAt(0).toUpperCase() + text.slice(1), "mic", bufferLag, room);
+    };
+    const later = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(flush, PAUSE_MS);
+    };
+    flushRef.current = flush;
     rec.onresult = (e) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i]!;
         if (!r.isFinal) {
           lastInterim = Date.now();
+          if (buffer) later(); // still talking: keep the line open
           continue;
         }
         const text = r[0].transcript.trim();
         if (!text) continue;
         // Lag = how long after the last partial caption the final text arrived.
-        const lag = lastInterim ? Math.min(120000, Math.max(0, Date.now() - lastInterim)) : 0;
+        bufferLag = Math.round(lastInterim ? Math.min(120000, Math.max(0, Date.now() - lastInterim)) : 0);
         lastInterim = 0;
-        send(text, "mic", Math.round(lag), room);
+        buffer += (buffer ? " " : "") + text;
+        if (/[.?!]$/.test(text) || buffer.length > 160) flush();
+        else later();
       }
     };
     rec.onerror = (e) => {
@@ -167,6 +194,7 @@ export function Presenter({ roomId }: { roomId: string }) {
 
       <div className="flex flex-wrap items-center gap-2">
         <Button aria-pressed={listening} disabled={!supported} onClick={listening ? stop : start}>
+          {listening ? <MicOff size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
           {listening ? "Stop captions" : "Start captions from microphone"}
         </Button>
         <p role="status" className="text-sm text-muted-foreground">
@@ -188,11 +216,11 @@ export function Presenter({ roomId }: { roomId: string }) {
       >
         <label htmlFor="typed" className="sr-only">Type a caption line</label>
         <input id="typed" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Or type a line" className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3" />
-        <Button type="submit" variant="outline">Send line</Button>
+        <Button type="submit" variant="outline"><Send size={16} aria-hidden="true" />Send line</Button>
       </form>
 
       <Button variant="ghost" className="self-start" onClick={() => api.replay(roomId, key || undefined).catch((e: Error) => setError(e.message))}>
-        Replay sample talk
+        <PlayCircle size={18} aria-hidden="true" /> Replay sample talk
       </Button>
     </div>
   );
