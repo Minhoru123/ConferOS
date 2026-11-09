@@ -12,8 +12,8 @@ Architecture board: https://www.figma.com/board/c9XDkwm2grU3XOgref2hE4/ConferOS
 
 - **Follow any room live.** The main room, focus groups and team zones each have live captions and a transcript that every attendee sees on their own screen.
 - **Ask the AI in chat.** Start a chat message with `@ai`, for example `@ai when is lunch?`. It answers only from what was said in that room and shows when it was said. If it was not said, it says so instead of guessing.
-- **Read it in your language.** Pick a language and captions and the transcript translate on your device (Chrome 138 or later).
-- **See and hear the room.** Turn on your camera with live captions on top, or open the room's group call.
+- **Read it in your language.** Pick a language and captions and the transcript translate as they arrive, so people whose first language is not English, or who cannot hear the speaker, can follow along.
+- **See and hear the stage.** In Organizer view, **Go live** streams the organizer's camera and microphone to every participant in the room (WebRTC), with captions in each viewer's language on top. Each room also has a group call for face-to-face talk.
 - **Meet people.** Focus groups are open rooms around a topic. Team zones are private rooms you join with a code, for people with aligned interests to build together.
 - **Catch up without stress.** Pause the captions without losing your place, jump back to live, search what was said, or switch to captions only.
 - **Know what is next.** A Now and Next strip, today's agenda, and a countdown to the submission deadline, tailored to the Cloud Native Hackathon.
@@ -116,8 +116,9 @@ Traces appear under the service `backchannel-api`. Never commit the token.
 
 ## Known limits
 
-- The camera shows your own feed with captions. Sharing video between people uses the room's group call (Jitsi Meet), which opens in a new tab.
-- Microphone captions and on-device translation need Chrome or Edge. Captions need localhost or HTTPS.
+- The live broadcast uses one WebRTC connection per viewer from the organizer's browser, which suits a room of dozens. A large stage needs a media server (SFU). Group calls use Jitsi Meet in a new tab.
+- Translation uses the free MyMemory service, so transcript lines are sent to it, and it has a daily quota.
+- Microphone captions need Chrome or Edge. Captions and the camera need localhost or HTTPS.
 - Live updates and chat are fanned out inside one API process, so the API runs as one replica. A large event needs shared fan-out such as Redis pub/sub.
 - The AI answers with the best matching line from the transcript. Generated answers and summaries are next.
 

@@ -33,7 +33,8 @@ import { AGENDA, countdown, eventMinutes, label, nowAndNext, type AgendaItem } f
 import { api, type ChatMessage, type Room, type Segment } from "./api";
 import { AVPanel } from "./AVPanel";
 import { Presenter } from "./Presenter";
-import { LANGUAGES, makeTranslator, translationSupported } from "./Translate";
+import { signals } from "./live";
+import { LANGUAGES } from "./Translate";
 import { Button } from "./components/ui/button";
 
 const clock = (ts: string) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -105,7 +106,7 @@ export function App() {
   const [joinCode, setJoinCode] = useState("");
   const [roomNote, setRoomNote] = useState("");
   const [minutes, setMinutes] = useState(() => eventMinutes());
-  const translatorRef = useRef<{ translate(t: string): Promise<string> } | null>(null);
+  const pendingRef = useRef(new Set<string>());
   const endRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -135,6 +136,7 @@ export function App() {
     const stop = api.stream(roomId, code, {
       segment: (s) => current && setSegments((cur) => byId(cur, [s], seq)),
       message: (m) => current && setMessages((cur) => byId(cur, [m], time)),
+      signal: (sig) => current && signals.emit(sig),
     });
     api.segments(roomId, code).then((l) => current && setSegments((cur) => byId(l, cur, seq))).catch((e: Error) => current && setError(e.message));
     api.messages(roomId, code).then((l) => current && setMessages((cur) => byId(l, cur, time))).catch(() => undefined);
@@ -144,46 +146,29 @@ export function App() {
     };
   }, [roomId, code]);
 
-  // Translate new lines as they arrive, on the device.
+  // Translate new lines as they arrive, so people can follow in their own language.
   useEffect(() => {
-    const t = translatorRef.current;
-    if (lang === "en" || !t) return;
-    let alive = true;
-    (async () => {
-      for (const s of segments.slice(-40)) {
-        const k = `${lang}:${s.id}`;
-        if (!alive) return;
-        if (translated[k]) continue;
-        try {
-          const out = await t.translate(s.text);
-          if (alive) setTranslated((cur) => ({ ...cur, [k]: out }));
-        } catch {
-          return;
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
+    if (lang === "en") return;
+    const missing = segments.slice(-40).filter((s) => !translated[`${lang}:${s.id}`] && !pendingRef.current.has(`${lang}:${s.id}`));
+    if (!missing.length) return;
+    missing.forEach((s) => pendingRef.current.add(`${lang}:${s.id}`));
+    api
+      .translate(missing.map((s) => s.text), lang)
+      .then((r) => {
+        setTranslated((cur) => {
+          const next = { ...cur };
+          missing.forEach((s, i) => (next[`${lang}:${s.id}`] = r.texts[i] ?? s.text));
+          return next;
+        });
+        setLangNote(r.failed.some(Boolean) ? "Some lines could not be translated and are shown in English." : "");
+      })
+      .catch((e: Error) => setLangNote(`Translation is not available right now (${e.message}). Showing English.`))
+      .finally(() => missing.forEach((s) => pendingRef.current.delete(`${lang}:${s.id}`)));
   }, [segments, lang, translated]);
 
-  async function chooseLanguage(next: string) {
+  function chooseLanguage(next: string) {
     setLang(next);
     setLangNote("");
-    translatorRef.current = null;
-    if (next === "en") return;
-    if (!translationSupported()) {
-      setLangNote("Translation runs on your device in Chrome 138 or later. This browser does not support it yet.");
-      return;
-    }
-    setLangNote("Preparing translation…");
-    const t = await makeTranslator(next);
-    if (!t) setLangNote("This language is not available for on-device translation in this browser.");
-    else {
-      translatorRef.current = t;
-      setLangNote("");
-      setTranslated((cur) => ({ ...cur }));
-    }
   }
   const text = (s: Segment) => (lang === "en" ? s.text : translated[`${lang}:${s.id}`] ?? s.text);
 
@@ -291,7 +276,7 @@ export function App() {
             <span className="relative inline-flex items-center">
               <Languages size={18} aria-hidden="true" className="pointer-events-none absolute left-3 text-muted-foreground" />
               <label htmlFor="lang" className="sr-only">Caption language</label>
-              <select id="lang" value={lang} onChange={(e) => void chooseLanguage(e.target.value)} className={`${input} pl-9 font-bold`}>
+              <select id="lang" value={lang} onChange={(e) => chooseLanguage(e.target.value)} className={`${input} pl-9 font-bold`}>
                 {LANGUAGES.map(([v, l]) => (
                   <option key={v} value={v}>{l}</option>
                 ))}
@@ -423,7 +408,7 @@ export function App() {
 
           {error && <p role="alert" className="rounded-xl border border-border bg-muted p-3">Something went wrong: {error}</p>}
 
-          {!calm && room && <AVPanel key={`${room.id}-${view}`} room={room} organizer={view === "organizer"} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />}
+          {!calm && room && <AVPanel key={`${room.id}-${view}`} room={room} code={code} organizer={view === "organizer"} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />}
 
           <section id="stage" tabIndex={-1} aria-label="Live captions" className="relative overflow-hidden rounded-3xl bg-[#0d1422] text-white shadow-[0_24px_60px_-30px_rgba(15,27,45,0.55)]">
             <div className="flex items-center justify-between gap-2 px-5 pt-4 text-sm text-[#c9d4e6]">

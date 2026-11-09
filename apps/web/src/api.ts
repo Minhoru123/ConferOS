@@ -45,6 +45,13 @@ export interface ChatMessage {
   citations?: Citation[];
 }
 
+export interface Signal {
+  from: string;
+  to: string;
+  type: "join" | "live" | "ended" | "offer" | "answer" | "candidate";
+  data?: unknown;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -74,11 +81,16 @@ export const api = {
     fetch(`/api/rooms/${id}/messages${withCode(code)}`, { method: "POST", headers: headers(), body: JSON.stringify({ author, text }) }).then(json<ChatMessage>),
   addLine: (id: string, line: NewLine, key?: string, code?: string) =>
     fetch(`/api/rooms/${id}/segments${withCode(code)}`, { method: "POST", headers: headers(key), body: JSON.stringify(line) }).then(json<Segment>),
+  signal: (id: string, sig: Signal, code?: string) =>
+    fetch(`/api/rooms/${id}/signal${withCode(code)}`, { method: "POST", headers: headers(), body: JSON.stringify(sig) }).then(json<{ ok: boolean }>),
+  translate: (texts: string[], target: string) =>
+    fetch("/api/translate", { method: "POST", headers: headers(), body: JSON.stringify({ texts, target }) }).then(json<{ texts: string[]; failed: boolean[] }>),
   replay: (id: string, key?: string) => fetch(`/api/dev/replay/${id}?everyMs=2500`, { method: "POST", headers: headers(key) }).then(json<{ queued: number }>),
-  stream: (id: string, code: string | undefined, on: { segment: (s: Segment) => void; message: (m: ChatMessage) => void }) => {
+  stream: (id: string, code: string | undefined, on: { segment: (s: Segment) => void; message: (m: ChatMessage) => void; signal?: (s: Signal) => void }) => {
     const es = new EventSource(`/api/rooms/${id}/stream${withCode(code)}`);
     es.addEventListener("segment", (e) => on.segment(JSON.parse((e as MessageEvent<string>).data) as Segment));
     es.addEventListener("message", (e) => on.message(JSON.parse((e as MessageEvent<string>).data) as ChatMessage));
+    es.addEventListener("signal", (e) => on.signal?.(JSON.parse((e as MessageEvent<string>).data) as Signal));
     return () => es.close();
   },
 };

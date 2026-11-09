@@ -6,7 +6,7 @@ import { z } from "zod";
 import { Bus } from "./bus.js";
 import { SAMPLE_LINES } from "./seed.js";
 import { NotFoundError, type Store } from "./store.js";
-import type { Answer, ChatMessage, Room, Segment } from "./types.js";
+import type { Answer, ChatMessage, Room, Segment, Signal } from "./types.js";
 
 const tracer = trace.getTracer("backchannel-api");
 const meter = metrics.getMeter("backchannel-api");
@@ -37,6 +37,32 @@ const roomBody = z.object({
 const askBody = z.object({ question: z.string().min(1).max(500) });
 const joinBody = z.object({ code: z.string().min(4).max(12) });
 const messageBody = z.object({ author: z.string().min(1).max(60), text: z.string().min(1).max(1000) });
+const signalBody = z.object({
+  from: z.string().min(1).max(64),
+  to: z.string().min(1).max(64),
+  type: z.enum(["join", "live", "ended", "offer", "answer", "candidate"]),
+  data: z.unknown().optional(),
+});
+const translateBody = z.object({ texts: z.array(z.string().min(1).max(1000)).min(1).max(40), target: z.string().min(2).max(10) });
+
+// Translation through MyMemory (free, no key). Results are cached per language and line.
+const translations = new Map<string, string>();
+async function translateOne(text: string, target: string): Promise<string | null> {
+  const key = `${target}:${text}`;
+  const hit = translations.get(key);
+  if (hit) return hit;
+  try {
+    const pair = `en|${target === "zh" ? "zh-CN" : target}`;
+    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(pair)}`, { signal: AbortSignal.timeout(8000) });
+    const body = (await res.json()) as { responseStatus?: number | string; responseData?: { translatedText?: string } };
+    const out = body.responseData?.translatedText;
+    if (!res.ok || Number(body.responseStatus) !== 200 || !out) return null;
+    translations.set(key, out);
+    return out;
+  } catch {
+    return null;
+  }
+}
 
 /** Rooms as everyone may see them: no join codes, no private zones. */
 const publicRoom = ({ code: _code, ...r }: Room) => r;
@@ -47,13 +73,14 @@ export interface Deps {
   store: Store;
   bus?: Bus<Segment>;
   chat?: Bus<ChatMessage>;
+  signals?: Bus<Signal>;
   /** Enables the dev-only replay endpoint. */
   dev?: boolean;
   /** When set, adding lines needs this value in the x-presenter-key header. Defaults to PRESENTER_KEY. */
   presenterKey?: string;
 }
 
-export async function buildServer({ store, bus = new Bus<Segment>(), chat = new Bus<ChatMessage>(), dev = false, presenterKey }: Deps) {
+export async function buildServer({ store, bus = new Bus<Segment>(), chat = new Bus<ChatMessage>(), signals = new Bus<Signal>(), dev = false, presenterKey }: Deps) {
   const key = presenterKey ?? process.env.PRESENTER_KEY ?? "";
   const messages = new Map<string, ChatMessage[]>();
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
@@ -160,11 +187,13 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
     res.write(": connected\n\n");
     const offLines = bus.subscribe(id, (seg) => res.write(`event: segment\ndata: ${JSON.stringify(seg)}\n\n`));
     const offChat = chat.subscribe(id, (msg) => res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`));
+    const offSignals = signals.subscribe(id, (sig) => res.write(`event: signal\ndata: ${JSON.stringify(sig)}\n\n`));
     const beat = setInterval(() => res.write(": keep-alive\n\n"), 15000);
     req.raw.on("close", () => {
       clearInterval(beat);
       offLines();
       offChat();
+      offSignals();
     });
   });
 
@@ -191,6 +220,30 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
       postMessage(req.params.id, { author: "Backchannel AI", text: a.answer, bot: true, citations: a.citations });
     }
     return reply.code(201).send(msg);
+  });
+
+  // Relays WebRTC signaling inside a room so the organizer's camera and microphone reach every viewer.
+  app.post<{ Params: { id: string }; Querystring: { code?: string } }>("/api/rooms/:id/signal", async (req, reply) => {
+    const sig = signalBody.parse(req.body) as Signal;
+    await readable(req.params.id, req.query.code);
+    signals.publish(req.params.id, sig);
+    return reply.code(202).send({ ok: true });
+  });
+
+  // Translates transcript lines from English. Lines that fail come back unchanged, with failed: true.
+  app.post("/api/translate", async (req, reply) => {
+    const { texts, target } = translateBody.parse(req.body);
+    return tracer.startActiveSpan("translate", async (span) => {
+      try {
+        span.setAttributes({ "translate.target": target, "translate.lines": texts.length });
+        const out: (string | null)[] = [];
+        for (let i = 0; i < texts.length; i += 5) out.push(...(await Promise.all(texts.slice(i, i + 5).map((t) => translateOne(t, target)))));
+        if (out.every((t) => t === null)) return reply.code(502).send({ error: "the translation service did not answer" });
+        return { texts: out.map((t, i) => t ?? texts[i]!), failed: out.map((t) => t === null) };
+      } finally {
+        span.end();
+      }
+    });
   });
 
   if (dev) {

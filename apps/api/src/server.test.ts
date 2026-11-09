@@ -131,3 +131,13 @@ describe("team zones and chat", () => {
     expect(msgs[2]!.citations).toHaveLength(1);
   });
 });
+
+describe("live broadcast signaling", () => {
+  it("relays signals to the room and checks team zone codes", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    const ok = await app.inject({ method: "POST", url: "/api/rooms/main/signal", payload: { from: "a", to: "broadcaster", type: "join" } });
+    expect(ok.statusCode).toBe(202);
+    const bad = await app.inject({ method: "POST", url: "/api/rooms/main/signal", payload: { from: "a", to: "b", type: "nonsense" } });
+    expect(bad.statusCode).toBe(400);
+  });
+});
