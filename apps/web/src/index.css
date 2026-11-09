@@ -57,3 +57,31 @@ body {
     animation: none !important;
   }
 }
+
+/* High contrast, chosen with the "High contrast" button. It sits on a wrapper, so it layers over light or dark. */
+[data-contrast="high"] {
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --muted: #ffffff;
+  --muted-foreground: #000000;
+  --border: #000000;
+  --primary: #14208f;
+  --primary-foreground: #ffffff;
+  --accent: #ffffff;
+  --ring: #8a3b00;
+}
+@media (prefers-color-scheme: dark) {
+  [data-contrast="high"] {
+    --background: #000000;
+    --foreground: #ffffff;
+    --card: #000000;
+    --muted: #000000;
+    --muted-foreground: #ffffff;
+    --border: #ffffff;
+    --primary: #b3bcff;
+    --primary-foreground: #000000;
+    --accent: #000000;
+    --ring: #ffc474;
+  }
+}

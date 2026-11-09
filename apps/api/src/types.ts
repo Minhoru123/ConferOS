@@ -19,12 +19,18 @@ export interface Segment {
   speaker: string;
   lang: string;
   text: string;
+  /** "mic" for speech recognition, "typed" for lines typed by the presenter. */
+  source?: "mic" | "typed";
+  /** For mic lines: how long after the last partial caption the final text arrived, in ms. */
+  lagMs?: number;
 }
 
 export interface NewSegment {
   speaker: string;
   text: string;
   lang?: string;
+  source?: "mic" | "typed";
+  lagMs?: number;
 }
 
 export interface NewRoom {

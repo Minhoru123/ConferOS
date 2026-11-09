@@ -28,6 +28,8 @@ spec:
           # Create this Secret with the OTLP endpoint and auth header (see README). Optional so the app runs without it.
           envFrom:
             - secretRef: { name: otel, optional: true }
+            # Secret "presenter" with PRESENTER_KEY: when set, only the presenter page can add transcript lines.
+            - secretRef: { name: presenter, optional: true }
           readinessProbe:
             httpGet: { path: /health, port: 8787 }
           livenessProbe:

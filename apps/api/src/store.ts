@@ -58,7 +58,7 @@ export class MemoryStore implements Store {
   }
 
   protected newSegment(roomId: string, seq: number, input: NewSegment): Segment {
-    return { id: `${roomId}-${seq}`, roomId, seq, ts: new Date().toISOString(), speaker: input.speaker, lang: input.lang ?? "en", text: input.text };
+    return { id: `${roomId}-${seq}`, roomId, seq, ts: new Date().toISOString(), speaker: input.speaker, lang: input.lang ?? "en", text: input.text, ...(input.source ? { source: input.source } : {}), ...(input.lagMs !== undefined ? { lagMs: input.lagMs } : {}) };
   }
 
   async addSegment(roomId: string, input: NewSegment) {
@@ -92,15 +92,26 @@ export class MemoryStore implements Store {
 /** Elasticsearch-backed segments. Rooms stay in memory for now. */
 export class EsStore extends MemoryStore {
   private counters = new Map<string, number>();
+  private chains = new Map<string, Promise<unknown>>();
 
   private constructor(private es: Client, private index: string, seed: Room[]) {
     super(seed);
   }
 
-  static async create(opts: { url: string; apiKey?: string; index?: string }, seed: Room[]) {
+  static async create(opts: { url: string; apiKey?: string; index?: string; attempts?: number }, seed: Room[]) {
     const es = new Client({ node: opts.url, ...(opts.apiKey ? { auth: { apiKey: opts.apiKey } } : {}) });
     const index = opts.index ?? "backchannel-segments";
-    const exists = await es.indices.exists({ index });
+    // Elasticsearch can take a while to start (docker compose starts both at once), so wait for it instead of exiting.
+    let exists = false;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        exists = await es.indices.exists({ index });
+        break;
+      } catch (e) {
+        if (attempt >= (opts.attempts ?? 30)) throw e;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
     if (!exists) {
       await es.indices.create({
         index,
@@ -111,6 +122,8 @@ export class EsStore extends MemoryStore {
             ts: { type: "date" },
             speaker: { type: "keyword" },
             lang: { type: "keyword" },
+            source: { type: "keyword" },
+            lagMs: { type: "integer" },
             text: { type: "text" },
             // Next: add a dense_vector field for hybrid (keyword + semantic) search.
           },
@@ -120,15 +133,21 @@ export class EsStore extends MemoryStore {
     return new EsStore(es, index, seed);
   }
 
-  private async nextSeq(roomId: string) {
-    let n = this.counters.get(roomId);
-    if (n === undefined) {
-      const c = await this.es.count({ index: this.index, query: { term: { roomId } } });
-      n = c.count;
-    }
-    n += 1;
-    this.counters.set(roomId, n);
-    return n;
+  /** Seq numbers are handed out one at a time per room, so concurrent writes never share an id. */
+  private nextSeq(roomId: string): Promise<number> {
+    const run = async () => {
+      let n = this.counters.get(roomId);
+      if (n === undefined) {
+        const c = await this.es.count({ index: this.index, query: { term: { roomId } } });
+        n = c.count;
+      }
+      n += 1;
+      this.counters.set(roomId, n);
+      return n;
+    };
+    const next = (this.chains.get(roomId) ?? Promise.resolve()).then(run, run);
+    this.chains.set(roomId, next.catch(() => undefined));
+    return next;
   }
 
   override async addSegment(roomId: string, input: NewSegment) {
@@ -143,18 +162,22 @@ export class EsStore extends MemoryStore {
     const r = await this.es.search<Segment>({
       index: this.index,
       size: 1000,
-      sort: [{ seq: "asc" }],
+      sort: [{ seq: "desc" }],
       query: { bool: { filter: [{ term: { roomId } }], ...(q ? { must: [{ match: { text: q } }] } : {}) } },
     });
-    return r.hits.hits.map((h) => h._source as Segment);
+    // Newest 1000 lines, returned oldest first.
+    return r.hits.hits.map((h) => h._source as Segment).reverse();
   }
 
   override async search(roomId: string, q: string, limit = 3) {
     if (!this.rooms.has(roomId)) throw new NotFoundError(`room ${roomId} not found`);
+    // Drop stop words first, like the memory store, so "Who won the prize?" does not match every line on "the".
+    const words = tokens(q).join(" ");
+    if (!words) return [];
     const r = await this.es.search<Segment>({
       index: this.index,
       size: limit,
-      query: { bool: { filter: [{ term: { roomId } }], must: [{ match: { text: q } }] } },
+      query: { bool: { filter: [{ term: { roomId } }], must: [{ match: { text: words } }] } },
     });
     return r.hits.hits.map((h) => h._source as Segment);
   }

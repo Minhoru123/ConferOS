@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
-import { SpanStatusCode, trace } from "@opentelemetry/api";
-import Fastify from "fastify";
+import { SpanStatusCode, metrics, trace } from "@opentelemetry/api";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import { Bus } from "./bus.js";
 import { SAMPLE_LINES } from "./seed.js";
@@ -8,8 +8,20 @@ import { NotFoundError, type Store } from "./store.js";
 import type { Answer } from "./types.js";
 
 const tracer = trace.getTracer("backchannel-api");
+const meter = metrics.getMeter("backchannel-api");
+const linesAdded = meter.createCounter("backchannel.lines", { description: "Transcript lines added, by source" });
+const captionLag = meter.createHistogram("backchannel.caption.lag", {
+  unit: "ms",
+  description: "How long after the last partial caption the final microphone caption arrived",
+});
 
-const segmentBody = z.object({ speaker: z.string().min(1).max(80), text: z.string().min(1).max(4000), lang: z.string().min(2).max(8).optional() });
+const segmentBody = z.object({
+  speaker: z.string().min(1).max(80),
+  text: z.string().min(1).max(4000),
+  lang: z.string().min(2).max(8).optional(),
+  source: z.enum(["mic", "typed"]).optional(),
+  lagMs: z.number().int().min(0).max(120000).optional(),
+});
 const roomBody = z.object({
   name: z.string().min(1).max(80),
   desc: z.string().max(200).optional(),
@@ -25,20 +37,31 @@ export interface Deps {
   bus?: Bus;
   /** Enables the dev-only replay endpoint. */
   dev?: boolean;
+  /** When set, adding lines needs this value in the x-presenter-key header. Defaults to PRESENTER_KEY. */
+  presenterKey?: string;
 }
 
-export async function buildServer({ store, bus = new Bus(), dev = false }: Deps) {
+export async function buildServer({ store, bus = new Bus(), dev = false, presenterKey }: Deps) {
+  const key = presenterKey ?? process.env.PRESENTER_KEY ?? "";
+  // Adding lines and replaying the demo are for the presenter. Reading and asking stay public.
+  const presenterOnly = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (key && req.headers["x-presenter-key"] !== key) return reply.code(401).send({ error: "presenter key required" });
+  };
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
   await app.register(cors, { origin: true });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof NotFoundError) return reply.code(404).send({ error: err.message });
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "invalid request", issues: err.issues });
+    const status = (err as { statusCode?: number }).statusCode;
+    if (status && status >= 400 && status < 500) return reply.code(status).send({ error: (err as Error).message });
     app.log.error(err);
     return reply.code(500).send({ error: "internal error" });
   });
 
   app.get("/health", async () => ({ ok: true }));
+
+  app.get("/api/config", async () => ({ presenterKeyRequired: Boolean(key) }));
 
   app.get("/api/rooms", async () => store.listRooms());
 
@@ -51,13 +74,15 @@ export async function buildServer({ store, bus = new Bus(), dev = false }: Deps)
     return store.listSegments(req.params.id, req.query.q);
   });
 
-  app.post<{ Params: { id: string } }>("/api/rooms/:id/segments", async (req, reply) => {
+  app.post<{ Params: { id: string } }>("/api/rooms/:id/segments", { preHandler: presenterOnly }, async (req, reply) => {
     const input = segmentBody.parse(req.body);
     return tracer.startActiveSpan("segment.ingest", async (span) => {
       try {
         span.setAttributes({ "room.id": req.params.id, "segment.chars": input.text.length });
         const seg = await store.addSegment(req.params.id, input);
         bus.publish(req.params.id, seg);
+        linesAdded.add(1, { source: input.source ?? "typed" });
+        if (input.lagMs !== undefined) captionLag.record(input.lagMs, { source: input.source ?? "typed" });
         return reply.code(201).send(seg);
       } catch (e) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
@@ -104,7 +129,7 @@ export async function buildServer({ store, bus = new Bus(), dev = false }: Deps)
   });
 
   if (dev) {
-    app.post<{ Params: { id: string }; Querystring: { everyMs?: string } }>("/api/dev/replay/:id", async (req, reply) => {
+    app.post<{ Params: { id: string }; Querystring: { everyMs?: string } }>("/api/dev/replay/:id", { preHandler: presenterOnly }, async (req, reply) => {
       const lines = SAMPLE_LINES[req.params.id];
       if (!lines) throw new NotFoundError(`no sample lines for ${req.params.id}`);
       const every = Math.max(200, Number(req.query.everyMs ?? 3000));

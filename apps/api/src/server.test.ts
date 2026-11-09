@@ -62,3 +62,43 @@ describe("api", () => {
     expect(rooms.length).toBe(SEED_ROOMS.length + 1);
   });
 });
+
+describe("presenter access and caption metadata", () => {
+  it("lets anyone add lines when no key is set, and reports that", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    expect((await app.inject({ url: "/api/config" })).json()).toEqual({ presenterKeyRequired: false });
+    const res = await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "A", text: "Hello." } });
+    expect(res.statusCode).toBe(201);
+  });
+
+  it("requires the presenter key to add lines when one is set, but not to read or ask", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "secret" });
+    expect((await app.inject({ url: "/api/config" })).json()).toEqual({ presenterKeyRequired: true });
+    const payload = { speaker: "A", text: "Lunch is at one." };
+    expect((await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload, headers: { "x-presenter-key": "wrong" } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload, headers: { "x-presenter-key": "secret" } })).statusCode).toBe(201);
+    expect((await app.inject({ url: "/api/rooms/main/segments" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/rooms/main/ask", payload: { question: "When is lunch?" } })).statusCode).toBe(200);
+  });
+
+  it("keeps the source and lag of microphone lines, and rejects bad values", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    const ok = await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "A", text: "Spoken.", source: "mic", lagMs: 850 } });
+    expect(ok.json()).toMatchObject({ source: "mic", lagMs: 850 });
+    const listed = (await app.inject({ url: "/api/rooms/main/segments" })).json() as { lagMs?: number }[];
+    expect(listed[0]!.lagMs).toBe(850);
+    for (const bad of [{ lagMs: -1 }, { lagMs: 1.5 }, { lagMs: 999999 }, { source: "radio" }]) {
+      const res = await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "A", text: "x", ...bad } });
+      expect(res.statusCode).toBe(400);
+    }
+  });
+});
+
+describe("client errors", () => {
+  it("returns 400, not 500, for a malformed JSON body", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    const res = await app.inject({ method: "POST", url: "/api/rooms/main/segments", headers: { "content-type": "application/json" }, payload: "{not json" });
+    expect(res.statusCode).toBe(400);
+  });
+});
