@@ -1,0 +1,409 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Backchannel</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one stage column of live captions with a calm side panel for Ask and Rooms; collapses to a single column on phones. */
+:root {
+  --bg: #F4F6F8; --surface: #FFFFFF; --fg: #15202B; --muted: #475664; --line: #D3DBE3;
+  --accent: #0A6C74; --accent-fg: #FFFFFF; --accent-soft: #DCEFF0; --live: #B42318; --focus: #1D4ED8;
+  --mark: #FFE9A8;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1319; --surface: #151D26; --fg: #E8EEF3; --muted: #A8B5C2; --line: #29343F;
+    --accent: #5CC8D0; --accent-fg: #04262A; --accent-soft: #12343A; --live: #FF8A7A; --focus: #8AB4FF; --mark: #5A4A12;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D1319; --surface: #151D26; --fg: #E8EEF3; --muted: #A8B5C2; --line: #29343F;
+  --accent: #5CC8D0; --accent-fg: #04262A; --accent-soft: #12343A; --live: #FF8A7A; --focus: #8AB4FF; --mark: #5A4A12;
+  color-scheme: dark;
+}
+/* High contrast preference, layered over either theme */
+.app[data-contrast="high"] {
+  --bg: #FFFFFF; --surface: #FFFFFF; --fg: #000000; --muted: #000000; --line: #000000;
+  --accent: #00383D; --accent-fg: #FFFFFF; --accent-soft: #FFFFFF; --live: #8A0000; --focus: #0000CC; --mark: #FFEB3B;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .app[data-contrast="high"] {
+    --bg: #000000; --surface: #000000; --fg: #FFFFFF; --muted: #FFFFFF; --line: #FFFFFF;
+    --accent: #7DF0F8; --accent-fg: #000000; --accent-soft: #000000; --live: #FF9C8F; --focus: #9DBBFF; --mark: #6B5A00;
+  }
+}
+:root[data-theme="dark"] .app[data-contrast="high"] {
+  --bg: #000000; --surface: #000000; --fg: #FFFFFF; --muted: #FFFFFF; --line: #FFFFFF;
+  --accent: #7DF0F8; --accent-fg: #000000; --accent-soft: #000000; --live: #FF9C8F; --focus: #9DBBFF; --mark: #6B5A00;
+}
+
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.5; }
+* { box-sizing: border-box; }
+.app {
+  --scale: 1;
+  background: var(--bg); color: var(--fg); min-height: 100%;
+  padding-block: 16px 32px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.skip { position: absolute; left: -999px; top: 0; background: var(--accent); color: var(--accent-fg); padding: 8px 12px; border-radius: 6px; z-index: 20; }
+.skip:focus { left: 8px; top: 8px; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.brand h1 { font-family: var(--font-display); font-size: 1.6rem; line-height: 1.1; margin: 0; letter-spacing: -0.01em; }
+.event { color: var(--muted); font-size: 0.95rem; }
+.live { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--live); font-weight: 500; }
+.live i { width: 10px; height: 10px; border-radius: 50%; background: var(--live); display: inline-block; animation: pulse 1.8s ease-in-out infinite; }
+.live.off i { animation: none; opacity: .5; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .live i { animation: none; } * { scroll-behavior: auto !important; } }
+
+.prefs { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.prefs .group { display: flex; align-items: center; gap: 6px; }
+.prefs .label { font-size: 0.85rem; color: var(--muted); margin-right: 2px; }
+.btn { min-height: 44px; min-width: 44px; padding: 8px 14px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 700; }
+select.btn { padding-right: 8px; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.panel-head h2 { font-family: var(--font-display); font-size: 1.15rem; margin: 0; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.search { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-width: 0; width: 220px; max-width: 100%; }
+
+.transcript { padding: 8px 16px 16px; max-height: 56vh; min-height: 320px; overflow-y: auto; }
+.line { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 12px 8px; border-radius: 8px; }
+.line + .line { border-top: 1px solid var(--line); }
+.line time { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); padding-top: calc(0.35em * var(--scale)); }
+.line p { margin: 0; font-size: calc(1.15rem * var(--scale)); line-height: 1.55; max-width: 62ch; }
+.line .who { display: block; font-size: 0.8rem; color: var(--muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+.line.flash { background: var(--accent-soft); }
+mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2px; }
+.empty { padding: 24px 8px; color: var(--muted); }
+.banner { margin: 0 16px 12px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); border: 1px solid var(--line); font-size: 0.95rem; }
+.banner[hidden] { display: none; }
+.banner h3 { margin: 0 0 4px; font-size: 0.95rem; }
+.banner ul { margin: 0; padding-left: 20px; }
+.foot { padding: 10px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+
+.tabs { display: flex; gap: 4px; padding: 8px 8px 0; border-bottom: 1px solid var(--line); }
+.tab { min-height: 44px; padding: 8px 16px; background: transparent; border: 0; border-bottom: 3px solid transparent; cursor: pointer; color: var(--muted); font-weight: 700; }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tabpanel { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.tabpanel[hidden] { display: none; }
+.ask { display: flex; gap: 8px; flex-wrap: wrap; }
+.ask input { flex: 1 1 160px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: 44px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); cursor: pointer; font-size: 0.95rem; }
+.chip:hover { border-color: var(--accent); }
+.answer { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--bg); min-height: 64px; }
+.answer p { margin: 0 0 8px; }
+.answer .src { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 0.85rem; color: var(--muted); }
+.cite { min-height: 36px; padding: 2px 10px; border: 1px solid var(--accent); border-radius: 6px; background: transparent; color: var(--accent); cursor: pointer; font-family: var(--font-mono); font-size: 0.8rem; }
+.room { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 0; }
+.room + .room { border-top: 1px solid var(--line); }
+.room b { font-family: var(--font-mono); font-weight: 500; }
+.room span.d { grid-column: 1; color: var(--muted); font-size: 0.9rem; }
+.room .btn { grid-row: 1 / span 2; grid-column: 2; }
+.sub { font-family: var(--font-display); font-size: 0.95rem; margin: 8px 0 0; }
+.note { font-size: 0.85rem; color: var(--muted); margin: 0; }
+.tag { display: inline-block; font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--live); border: 1px solid var(--live); border-radius: 4px; padding: 0 6px; margin-left: 6px; }
+
+.video { position: relative; aspect-ratio: 16 / 9; max-width: 100%; background: #0B1117; color: #E8EEF3; border-radius: 10px; display: grid; place-items: center; overflow: hidden; text-align: center; padding: 12px; }
+#stageVideo { margin: 12px 16px 0; }
+.video[hidden] { display: none; }
+.video .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px; background: rgba(0,0,0,.8); color: #FFFFFF; font-size: 0.95rem; text-align: left; }
+#roomView { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+#roomView[hidden] { display: none; }
+.roomform { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.roomform label { font-size: 0.9rem; }
+.roomform .row { display: flex; gap: 8px; align-items: center; min-height: 44px; }
+
+/* Calm mode: one column, only the latest lines, larger and quieter */
+.calm .aside { display: none; }
+.calm .grid { grid-template-columns: minmax(0, 1fr); }
+.calm .line:not(:nth-last-child(-n+3)) { display: none; }
+.calm .line p { font-size: calc(1.5rem * var(--scale)); line-height: 1.6; }
+.calm .transcript { min-height: 240px; max-height: none; }
+
+@media (max-width: 860px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .transcript { max-height: 50vh; }
+  .line { grid-template-columns: 52px minmax(0, 1fr); gap: 8px; }
+}
+</style>
+
+<div class="app" id="app" data-contrast="normal">
+  <a class="skip" href="#transcript">Skip to live transcript</a>
+  <div class="wrap">
+    <header class="top">
+      <div class="brand">
+        <h1>Backchannel</h1>
+        <span class="event">Cloud Native Hackathon · Main stage</span>
+      </div>
+      <span class="live" id="liveState"><i aria-hidden="true"></i><span id="liveText">Live</span></span>
+    </header>
+
+    <section class="prefs" aria-label="Reading preferences">
+      <div class="group" role="group" aria-label="Text size">
+        <span class="label">Text size</span>
+        <button class="btn" id="smaller" aria-label="Make text smaller">A−</button>
+        <button class="btn" id="larger" aria-label="Make text larger">A+</button>
+      </div>
+      <div class="group">
+        <label class="label" for="lang">Language</label>
+        <select class="btn" id="lang">
+          <option value="en">English</option>
+          <option value="es">Español (translated)</option>
+        </select>
+      </div>
+      <button class="btn" id="contrast" aria-pressed="false">High contrast</button>
+      <button class="btn" id="calm" aria-pressed="false">Calm mode</button>
+      <button class="btn" id="announce" aria-pressed="false">Read new lines aloud (screen reader)</button>
+    </section>
+
+    <main class="grid">
+      <section class="panel" aria-labelledby="t-h">
+        <div class="panel-head">
+          <h2 id="t-h">Live transcript</h2>
+          <div class="tools">
+            <label class="sr" for="search" style="position:absolute;left:-999px">Search the transcript</label>
+            <input class="search" id="search" type="search" placeholder="Search what was said" autocomplete="off">
+            <button class="btn" id="catchup">Catch me up</button>
+            <button class="btn" id="video" aria-pressed="false">Stage video</button>
+            <button class="btn primary" id="pause" aria-pressed="false">Pause</button>
+          </div>
+        </div>
+        <div class="video" id="stageVideo" hidden>
+          <span>Stage video placeholder (optional, off by default)</span>
+          <div class="cap" id="stageCap"></div>
+        </div>
+        <div class="banner" id="summary" hidden></div>
+        <div class="transcript" id="transcript" role="log" aria-live="off" aria-label="Live transcript" tabindex="0"></div>
+        <div class="foot" id="foot">Captions are generated automatically and can contain errors. Sample content for this prototype.</div>
+      </section>
+
+      <aside class="panel aside" aria-label="Ask and rooms">
+        <div class="tabs" role="tablist" aria-label="Side panel">
+          <button class="tab" role="tab" id="tab-ask" aria-controls="p-ask" aria-selected="true">Ask</button>
+          <button class="tab" role="tab" id="tab-rooms" aria-controls="p-rooms" aria-selected="false" tabindex="-1">Rooms</button>
+        </div>
+
+        <div class="tabpanel" role="tabpanel" id="p-ask" aria-labelledby="tab-ask">
+          <form class="ask" id="askForm">
+            <label for="q" style="position:absolute;left:-999px">Ask about what has been said</label>
+            <input id="q" type="text" placeholder="Ask about what's been said so far" autocomplete="off">
+            <button class="btn primary" type="submit">Ask</button>
+          </form>
+          <div class="chips" aria-label="Example questions">
+            <button class="chip" type="button">When is lunch?</button>
+            <button class="chip" type="button">When do submissions close?</button>
+            <button class="chip" type="button">Is there a quiet space?</button>
+          </div>
+          <div class="answer" id="answer" aria-live="polite">
+            <p class="note">Answers come only from what has been said on stage so far, with a link to the line.</p>
+          </div>
+        </div>
+
+        <div class="tabpanel" role="tabpanel" id="p-rooms" aria-labelledby="tab-rooms" hidden>
+          <p class="note">Rooms set up by organizers. Join the ones you want and mute the rest.</p>
+          <div id="roomView" hidden></div>
+          <div id="rooms"></div>
+          <form class="roomform" id="roomForm" aria-labelledby="rf-h">
+            <h3 class="sub" id="rf-h">Start a room</h3>
+            <p class="note">Teams can open a room so more people stop by and see what they are building.</p>
+            <label for="rn">Room name</label>
+            <input id="rn" class="search" type="text" placeholder="e.g. ctrl-alt-build-demo" style="width:100%" autocomplete="off">
+            <div class="row"><input id="rv" type="checkbox"><label for="rv">Add video (captions are always on)</label></div>
+            <label for="rp">Who can join</label>
+            <select id="rp" class="btn"><option value="public">Anyone</option><option value="private">Invite with a code</option></select>
+            <button class="btn primary" type="submit">Create room</button>
+          </form>
+          <h3 class="sub">Teams live now</h3>
+          <div class="room"><div><b>Ctrl-Alt-Build</b><span class="tag">Live</span></div><span class="d">Showing Backchannel. Open to everyone.</span><button class="btn" type="button" aria-pressed="false" data-join>Watch</button></div>
+          <div class="room"><div><b>Private room</b></div><span class="d">Join code 7K-2QX. Invite only.</span><button class="btn" type="button" aria-pressed="false" data-join>Enter code</button></div>
+        </div>
+      </aside>
+    </main>
+  </div>
+</div>
+
+<script>
+var LINES = []; /* filled live from the server over /api/stream */
+var ROOMS = [
+  { n: "#announcements", d: "Organizer updates only. 212 members." },
+  { n: "#observability", d: "Traces, logs and dashboards. 38 online.", v: true },
+  { n: "#accessibility", d: "Help and feedback on access. 21 online.", v: true },
+  { n: "#find-a-teammate", d: "Looking for people to build with. 54 online." }
+];
+var RULES = [
+  { keys: ["lunch","food","eat","vegetarian","gluten"], ids: [3], a: "Lunch is at 2:00 PM. Vegetarian and gluten-free options are on the left side of the room." },
+  { keys: ["submit","submission","deadline","close","repo","readme"], ids: [5], a: "Submissions close at 5:30 PM. You need a public repository and a README with setup instructions." },
+  { keys: ["panel","kelsey","hightower"], ids: [4], a: "There is a panel during lunch, then building resumes." },
+  { keys: ["winner","demo","party"], ids: [6], a: "Demos run from 5:30 PM, winners are announced at 6:30 PM, and the after-party starts at 7:00 PM." },
+  { keys: ["quiet","calm","noise","space"], ids: [7], a: "The room at the back left is set aside as a quiet space. Ask any organizer." },
+  { keys: ["build","start","team"], ids: [2], a: "Building starts at 11:00. Teams can still form at the front until then." }
+];
+
+var app = document.getElementById("app");
+var tEl = document.getElementById("transcript");
+var received = 0, shown = 0, paused = false, connected = false, lang = "en", term = "", scale = 1, announce = false;
+
+function txt(l) { return l[lang] || l.en; }
+function esc(s) { return s.replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+function hl(text) {
+  var safe = esc(text);
+  if (!term) return safe;
+  var re = new RegExp("(" + term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
+  return safe.replace(re, "<mark>$1</mark>");
+}
+function render(stick) {
+  var list = LINES.slice(0, shown).filter(function (l) { return !term || txt(l).toLowerCase().indexOf(term.toLowerCase()) > -1; });
+  if (!list.length) { tEl.innerHTML = term ? '<p class="empty">No lines match "' + esc(term) + '" yet.</p>' : '<p class="empty">Waiting for the first line.</p>'; }
+  else {
+    tEl.innerHTML = list.map(function (l) {
+      return '<div class="line" id="line-' + l.id + '"><time>' + esc(l.t) + '</time><p><span class="who">' + esc(l.who) + '</span>' + hl(txt(l)) + '</p></div>';
+    }).join("");
+  }
+  if (stick) tEl.scrollTop = tEl.scrollHeight;
+  var pb = document.getElementById("pause");
+  if (paused) { var n = received - shown; pb.textContent = n > 0 ? "Jump to live (" + n + " new)" : "Resume"; }
+  else pb.textContent = "Pause";
+  pb.setAttribute("aria-pressed", String(paused));
+  var live = document.getElementById("liveState");
+  document.getElementById("liveText").textContent = paused ? "Paused" : (connected ? "Live" : "Reconnecting");
+  live.classList.toggle("off", paused || !connected);
+  updateCap();
+  document.getElementById("foot").textContent = (lang === "es" ? "Traducción automática de ejemplo. " : "") + "Captions are generated automatically and can contain errors. Sample content for this prototype.";
+}
+function tick() {
+  if (received < LINES.length) {
+    received++;
+    if (!paused) { shown = received; render(true); }
+    else render(false);
+  }
+}
+var stream = new EventSource("/api/stream");
+stream.addEventListener("snapshot", function (e) {
+  LINES = JSON.parse(e.data);
+  received = LINES.length;
+  if (!paused || shown > received) shown = received;
+  render(true);
+});
+stream.addEventListener("line", function (e) { LINES.push(JSON.parse(e.data)); tick(); });
+stream.onopen = function () { connected = true; render(false); };
+stream.onerror = function () { connected = false; render(false); };
+
+document.getElementById("pause").onclick = function () {
+  paused = !paused;
+  if (!paused) { shown = received; render(true); } else render(false);
+};
+document.getElementById("search").oninput = function (e) { term = e.target.value.trim(); render(false); };
+document.getElementById("lang").onchange = function (e) { lang = e.target.value; render(false); };
+document.getElementById("larger").onclick = function () { scale = Math.min(1.6, +(scale + 0.15).toFixed(2)); app.style.setProperty("--scale", scale); };
+document.getElementById("smaller").onclick = function () { scale = Math.max(0.85, +(scale - 0.15).toFixed(2)); app.style.setProperty("--scale", scale); };
+function toggle(id, fn) {
+  var b = document.getElementById(id);
+  b.onclick = function () { var on = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", String(on)); fn(on); };
+}
+toggle("contrast", function (on) { app.setAttribute("data-contrast", on ? "high" : "normal"); });
+toggle("calm", function (on) { app.classList.toggle("calm", on); render(true); });
+toggle("announce", function (on) { announce = on; tEl.setAttribute("aria-live", on ? "polite" : "off"); });
+toggle("video", function (on) { document.getElementById("stageVideo").hidden = !on; updateCap(); });
+function updateCap() { var l = LINES[shown - 1]; document.getElementById("stageCap").textContent = l ? txt(l) : ""; }
+
+document.getElementById("catchup").onclick = function () {
+  var box = document.getElementById("summary");
+  var items = LINES.slice(0, received).map(function (l) { return "<li>" + esc(l.gist || l.en) + "</li>"; }).join("");
+  box.innerHTML = "<h3>Caught up on " + received + " announcements</h3><ul>" + items + "</ul>";
+  box.hidden = false;
+};
+
+/* Ask: answers only from lines already received, with citations */
+function goTo(id) {
+  if (paused) { paused = false; shown = received; }
+  term = ""; document.getElementById("search").value = ""; render(false);
+  var el = document.getElementById("line-" + id);
+  if (el) { el.scrollIntoView({ block: "center" }); el.classList.add("flash"); el.setAttribute("tabindex", "-1"); el.focus({ preventScroll: true }); setTimeout(function () { el.classList.remove("flash"); }, 2200); }
+}
+function ask(q) {
+  var out = document.getElementById("answer"), s = q.toLowerCase(), hit = null;
+  RULES.forEach(function (r) { if (!hit && r.keys.some(function (k) { return s.indexOf(k) > -1; })) hit = r; });
+  if (hit && hit.ids.every(function (i) { return i <= received; })) {
+    var src = hit.ids.map(function (i) { var l = LINES[i - 1]; return '<button class="cite" type="button" data-go="' + i + '">Said at ' + l.t + "</button>"; }).join("");
+    out.innerHTML = "<p>" + esc(hit.a) + '</p><div class="src">Source: ' + src + "</div>";
+  } else {
+    out.innerHTML = "<p>That hasn't been said on stage yet, or I couldn't find it in the transcript so far.</p>";
+  }
+  Array.prototype.forEach.call(out.querySelectorAll("[data-go]"), function (b) { b.onclick = function () { goTo(+b.getAttribute("data-go")); }; });
+}
+document.getElementById("askForm").onsubmit = function (e) { e.preventDefault(); var v = document.getElementById("q").value.trim(); if (v) ask(v); };
+Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (c) { c.onclick = function () { document.getElementById("q").value = c.textContent; ask(c.textContent); }; });
+
+/* Tabs */
+var tabs = [document.getElementById("tab-ask"), document.getElementById("tab-rooms")];
+function selectTab(i) {
+  tabs.forEach(function (t, j) {
+    var on = i === j;
+    t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1;
+    document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+  });
+  tabs[i].focus();
+}
+tabs.forEach(function (t, i) {
+  t.onclick = function () { selectTab(i); };
+  t.onkeydown = function (e) { if (e.key === "ArrowRight") selectTab((i + 1) % 2); if (e.key === "ArrowLeft") selectTab((i + 1) % 2); };
+});
+
+/* Rooms */
+var joined = -1;
+/* Static "teams live now" rows */
+Array.prototype.forEach.call(document.querySelectorAll("[data-join]"), function (b) {
+  var base = b.textContent;
+  b.onclick = function () { var on = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", String(on)); b.textContent = on ? "Added" : base; };
+});
+function renderRooms() {
+  var box = document.getElementById("rooms");
+  box.innerHTML = ROOMS.map(function (r, i) {
+    return '<div class="room"><div><b>' + esc(r.n) + "</b>" + (r.v ? '<span class="tag">Video</span>' : "") + (r.team ? '<span class="tag">Team</span>' : "") + '</div><span class="d">' + esc(r.d) + '</span><button class="btn" type="button" data-room="' + i + '" aria-pressed="' + (joined === i) + '">' + (joined === i ? "Leave" : "Join") + "</button></div>";
+  }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll("[data-room]"), function (b) {
+    b.onclick = function () { var i = +b.getAttribute("data-room"); joined = joined === i ? -1 : i; renderRooms(); renderRoomView(); };
+  });
+}
+function renderRoomView() {
+  var v = document.getElementById("roomView");
+  if (joined < 0) { v.hidden = true; v.innerHTML = ""; return; }
+  var r = ROOMS[joined];
+  v.hidden = false;
+  v.innerHTML = "<b>" + esc(r.n) + "</b>" + (r.v
+    ? '<div class="video"><span>Video stream placeholder</span><div class="cap">Live captions on for this room</div></div>'
+    : '<p class="note">Text room. Chat appears here. Turn on video when creating a room if you want people to watch.</p>');
+}
+document.getElementById("roomForm").onsubmit = function (e) {
+  e.preventDefault();
+  var name = document.getElementById("rn").value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  if (!name) { document.getElementById("rn").focus(); return; }
+  var priv = document.getElementById("rp").value === "private";
+  var code = Math.random().toString(36).slice(2, 5).toUpperCase();
+  ROOMS.push({ n: "#" + name, d: (priv ? "Invite only. Code " + code + ". " : "Open to everyone. ") + "Started by your team.", v: document.getElementById("rv").checked, team: true });
+  joined = ROOMS.length - 1;
+  document.getElementById("rn").value = "";
+  renderRooms(); renderRoomView();
+};
+renderRooms();
+
+render(true);
+</script>
+
+</body></html>
