@@ -8,6 +8,8 @@ import {
   Hash,
   KeyRound,
   Languages,
+  LogOut,
+  UserRound,
   Lock,
   Megaphone,
   MessagesSquare,
@@ -33,9 +35,15 @@ import { useEffect, useRef, useState } from "react";
 import { AGENDA, countdown, eventMinutes, label, nowAndNext, type AgendaItem } from "./agenda";
 import { api, type ChatMessage, type Room, type Segment } from "./api";
 import { AVPanel } from "./AVPanel";
+import { DemoDock, type View } from "./DemoDock";
+import { Insights } from "./Insights";
+import { SampleSpeaker } from "./SampleSpeaker";
+import { SAMPLE_VOICE } from "./sampleVoice";
+import { TagsContext, TrackTag } from "./tags";
 import { Presenter } from "./Presenter";
 import { SignAvatar } from "./components/SignAvatar";
-import { LANGUAGES, makeTranslator, translationSupported } from "./Translate";
+import { signals } from "./live";
+import { LANGUAGES } from "./Translate";
 import { Button } from "./components/ui/button";
 
 const clock = (ts: string) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -56,7 +64,6 @@ const AGENDA_ICON: Record<AgendaItem["icon"], LucideIcon> = {
   send: Send,
 };
 type Tab = "transcript" | "chat" | "agenda";
-type View = "participant" | "organizer";
 type Theme = "light" | "dark";
 
 function load<T>(key: string, fallback: T): T {
@@ -98,7 +105,7 @@ export function App() {
   const [term, setTerm] = useState("");
   const [tab, setTab] = useState<Tab>("transcript");
   const [view, setView] = useState<View>("participant");
-  const [name, setName] = useState(() => load("conferos-name", ""));
+  const [name, setName] = useState(() => load("conferos-name", "John Doe"));
   const [draft, setDraft] = useState("");
   const [lang, setLang] = useState("en");
   const [translated, setTranslated] = useState<Record<string, string>>({});
@@ -109,7 +116,14 @@ export function App() {
   const [joinCode, setJoinCode] = useState("");
   const [roomNote, setRoomNote] = useState("");
   const [minutes, setMinutes] = useState(() => eventMinutes());
-  const translatorRef = useRef<{ translate(t: string): Promise<string> } | null>(null);
+  const pendingRef = useRef(new Set<string>());
+  const [tags, setTags] = useState(true);
+  const [voice, setVoice] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [demoNote, setDemoNote] = useState("");
+  const spokenRef = useRef("");
+  const audioQueue = useRef<string[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -139,6 +153,14 @@ export function App() {
     const stop = api.stream(roomId, code, {
       segment: (s) => current && setSegments((cur) => byId(cur, [s], seq)),
       message: (m) => current && setMessages((cur) => byId(cur, [m], time)),
+      signal: (sig) => current && signals.emit(sig),
+      reset: () => {
+        if (!current) return;
+        setSegments([]);
+        setMessages([]);
+        setPaused(false);
+        setTerm("");
+      },
     });
     api.segments(roomId, code).then((l) => current && setSegments((cur) => byId(l, cur, seq))).catch((e: Error) => current && setError(e.message));
     api.messages(roomId, code).then((l) => current && setMessages((cur) => byId(l, cur, time))).catch(() => undefined);
@@ -148,46 +170,29 @@ export function App() {
     };
   }, [roomId, code]);
 
-  // Translate new lines as they arrive, on the device.
+  // Translate new lines as they arrive, so people can follow in their own language.
   useEffect(() => {
-    const t = translatorRef.current;
-    if (lang === "en" || !t) return;
-    let alive = true;
-    (async () => {
-      for (const s of segments.slice(-40)) {
-        const k = `${lang}:${s.id}`;
-        if (!alive) return;
-        if (translated[k]) continue;
-        try {
-          const out = await t.translate(s.text);
-          if (alive) setTranslated((cur) => ({ ...cur, [k]: out }));
-        } catch {
-          return;
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
+    if (lang === "en") return;
+    const missing = segments.slice(-40).filter((s) => !translated[`${lang}:${s.id}`] && !pendingRef.current.has(`${lang}:${s.id}`));
+    if (!missing.length) return;
+    missing.forEach((s) => pendingRef.current.add(`${lang}:${s.id}`));
+    api
+      .translate(missing.map((s) => s.text), lang)
+      .then((r) => {
+        setTranslated((cur) => {
+          const next = { ...cur };
+          missing.forEach((s, i) => (next[`${lang}:${s.id}`] = r.texts[i] ?? s.text));
+          return next;
+        });
+        setLangNote(r.failed.some(Boolean) ? "Some lines could not be translated and are shown in English." : "");
+      })
+      .catch((e: Error) => setLangNote(`Translation is not available right now (${e.message}). Showing English.`))
+      .finally(() => missing.forEach((s) => pendingRef.current.delete(`${lang}:${s.id}`)));
   }, [segments, lang, translated]);
 
-  async function chooseLanguage(next: string) {
+  function chooseLanguage(next: string) {
     setLang(next);
     setLangNote("");
-    translatorRef.current = null;
-    if (next === "en") return;
-    if (!translationSupported()) {
-      setLangNote("Translation runs on your device in Chrome 138 or later. This browser does not support it yet.");
-      return;
-    }
-    setLangNote("Preparing translation…");
-    const t = await makeTranslator(next);
-    if (!t) setLangNote("This language is not available for on-device translation in this browser.");
-    else {
-      translatorRef.current = t;
-      setLangNote("");
-      setTranslated((cur) => ({ ...cur }));
-    }
   }
   const text = (s: Segment) => (lang === "en" ? s.text : translated[`${lang}:${s.id}`] ?? s.text);
 
@@ -197,6 +202,85 @@ export function App() {
   const previous = upToNow.at(-2);
   const missed = paused ? segments.length - frozen : 0;
   const { now, next } = nowAndNext(minutes);
+
+  // Demo sample speaker: each sample line plays its pre-recorded neural voice; other lines fall back to the browser voice.
+  function playNext() {
+    if (audioRef.current) return;
+    const src = audioQueue.current.shift();
+    if (!src) return setSpeaking(false);
+    const a = new Audio(src);
+    audioRef.current = a;
+    setSpeaking(true);
+    const done = () => {
+      audioRef.current = null;
+      playNext();
+    };
+    a.onended = done;
+    a.onerror = done;
+    a.play().catch(done);
+  }
+  useEffect(() => {
+    if (!voice || !latest || spokenRef.current === latest.id) return;
+    spokenRef.current = latest.id;
+    const src = SAMPLE_VOICE[latest.text];
+    if (src) {
+      audioQueue.current.push(src);
+      playNext();
+      return;
+    }
+    if (!("speechSynthesis" in window)) return;
+    const u = new SpeechSynthesisUtterance(latest.text);
+    u.lang = "en-US";
+    const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.startsWith("en"));
+    const prefer = [/premium/i, /enhanced/i, /natural/i, /neural/i, /siri/i, /Google US English/i, /Samantha/i, /Ava/i, /Daniel/i];
+    const best = prefer.map((re) => voices.find((v) => re.test(v.name))).find(Boolean) ?? voices.find((v) => v.lang === "en-US");
+    if (best) u.voice = best;
+    u.onstart = () => setSpeaking(true);
+    u.onend = () => setSpeaking(false);
+    window.speechSynthesis.speak(u);
+  }, [voice, latest]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Voices load asynchronously in some browsers; ask early so the first line does not use the fallback voice.
+  useEffect(() => {
+    if ("speechSynthesis" in window) window.speechSynthesis.getVoices();
+  }, []);
+  function startSample() {
+    spokenRef.current = latest?.id ?? "";
+    setVoice(true);
+    setView("participant");
+    setRoomId("main");
+    api
+      .replay("main", sessionStorage.getItem("presenterKey") ?? undefined, 7600)
+      .then((r) => setDemoNote(`Sample speaker is reading ${r.queued} lines on the Main stage.`))
+      .catch((e: Error) => setDemoNote(`Could not start the sample: ${e.message}`));
+  }
+  const key = () => sessionStorage.getItem("presenterKey") ?? undefined;
+  function resetRoom() {
+    stopSample();
+    api
+      .reset(roomId, key())
+      .then(() => setDemoNote(`Cleared the transcript and chat in ${room?.name ?? "this room"}.`))
+      .catch((e: Error) => setDemoNote(`Reset failed: ${e.message}`));
+  }
+  function loadTranscript() {
+    setRoomId("main");
+    api
+      .replay("main", key(), 200)
+      .then((r) => setDemoNote(`Loaded ${r.queued} sample lines into the Main stage.`))
+      .catch((e: Error) => setDemoNote(`Could not load the sample: ${e.message}`));
+  }
+  function askScenario(q: string) {
+    setTab("chat");
+    api.sendMessage(roomId, me, `@ai ${q}`, code).catch((e: Error) => setDemoNote(`Could not send: ${e.message}`));
+  }
+  function stopSample() {
+    setVoice(false);
+    setSpeaking(false);
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    audioQueue.current = [];
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setDemoNote("");
+  }
   const left = countdown(minutes);
 
   useEffect(() => {
@@ -206,7 +290,7 @@ export function App() {
     chatEndRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, tab]);
 
-  const me = name.trim() || "Guest";
+  const me = name.trim() || "John Doe";
   function send(textToSend: string) {
     const t = textToSend.trim();
     if (!t) return;
@@ -262,6 +346,7 @@ export function App() {
   const CurrentIcon = room ? RoomIcon(room) : Hash;
 
   return (
+    <TagsContext.Provider value={tags}>
     <div data-theme={theme} data-contrast={contrast ? "high" : "normal"} style={{ ["--scale" as string]: scale }} className="dots min-h-screen bg-background text-foreground">
       <a href="#stage" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground">
         Skip to live captions
@@ -269,33 +354,24 @@ export function App() {
 
       <header className="sticky top-0 z-20 border-b border-border bg-card">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
+          <div className="relative flex items-center gap-3">
+            <TrackTag track="Sonar" label="every change reviewed by Gitar" side="bottom" className="left-0 top-[calc(100%+2px)]" />
+            <TrackTag track="Radar" label="runs on Kubernetes" side="bottom" className="left-[290px] top-[calc(100%+2px)]" />
             <span aria-hidden="true" className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground">
               <Captions size={22} />
             </span>
             <div>
-              <p className="font-display text-xl font-bold leading-tight">Backchannel</p>
+              <p className="font-display text-xl font-bold leading-tight">ConferOS <span className="font-normal text-muted-foreground">· Backchannel</span></p>
               <p className="text-sm text-muted-foreground">Cloud Native Hackathon · Salt Lake City · Nov 9</p>
             </div>
-          </div>
-
-          <div role="group" aria-label="View" className="flex rounded-xl border border-border bg-background p-1">
-            {(["participant", "organizer"] as View[]).map((v) => {
-              const Icon = v === "participant" ? Users : Megaphone;
-              return (
-                <button key={v} aria-pressed={view === v} onClick={() => setView(v)} className="inline-flex min-h-10 items-center gap-2 rounded-lg px-4 font-bold text-muted-foreground aria-pressed:bg-primary aria-pressed:text-primary-foreground">
-                  <Icon size={18} aria-hidden="true" />
-                  {v === "participant" ? "Participant view" : "Organizer view"}
-                </button>
-              );
-            })}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="relative inline-flex items-center">
               <Languages size={18} aria-hidden="true" className="pointer-events-none absolute left-3 text-muted-foreground" />
+              <TrackTag track="Merge Forward" label="live translation" side="bottom" className="left-0 top-[calc(100%+2px)]" />
               <label htmlFor="lang" className="sr-only">Caption language</label>
-              <select id="lang" value={lang} onChange={(e) => void chooseLanguage(e.target.value)} className={`${input} pl-9 font-bold`}>
+              <select id="lang" value={lang} onChange={(e) => chooseLanguage(e.target.value)} className={`${input} pl-9 font-bold`}>
                 {LANGUAGES.map(([v, l]) => (
                   <option key={v} value={v}>{l}</option>
                 ))}
@@ -308,6 +384,31 @@ export function App() {
             >
               {theme === "light" ? <Moon size={20} aria-hidden="true" /> : <Sun size={20} aria-hidden="true" />}
             </button>
+            <details className="relative">
+              <summary aria-label={`Signed in as John Doe, ${view}`} className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-border bg-card py-1 pl-1 pr-3 hover:border-primary [&::-webkit-details-marker]:hidden">
+                <span aria-hidden="true" className="font-display grid h-9 w-9 place-items-center rounded-lg bg-[#ffd84d] text-sm font-bold text-[#0f1b2d]">JD</span>
+                <span className="hidden text-left leading-tight sm:block">
+                  <span className="block text-sm font-bold">John Doe</span>
+                  <span className="block text-xs text-muted-foreground">{view === "organizer" ? "Organizer" : "Participant"} · Ctrl-Alt-Build</span>
+                </span>
+              </summary>
+              <div className="absolute right-0 top-[calc(100%+8px)] z-30 flex w-72 flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <span aria-hidden="true" className="font-display grid h-12 w-12 place-items-center rounded-xl bg-[#ffd84d] font-bold text-[#0f1b2d]">JD</span>
+                  <div>
+                    <p className="font-bold">John Doe</p>
+                    <p className="text-sm text-muted-foreground">john.doe@example.com</p>
+                  </div>
+                </div>
+                <ul className="flex flex-col gap-1 text-sm">
+                  <li className="flex items-center gap-2"><UserRound size={16} aria-hidden="true" /> {view === "organizer" ? "Organizer" : "Participant"} at Cloud Native Hackathon</li>
+                  <li className="flex items-center gap-2"><Users size={16} aria-hidden="true" /> Team Ctrl-Alt-Build</li>
+                  <li className="flex items-center gap-2"><Languages size={16} aria-hidden="true" /> Captions in {LANGUAGES.find(([v]) => v === lang)?.[1] ?? "English"}</li>
+                </ul>
+                <p className="font-mono rounded-md border border-dashed border-border p-2 text-xs text-muted-foreground">Sample profile for the demo. Sign-in is not built yet.</p>
+                <button disabled className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border px-3 font-bold text-muted-foreground"><LogOut size={16} aria-hidden="true" /> Sign out</button>
+              </div>
+            </details>
             <details className="relative">
               <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-border bg-card px-4 font-bold hover:border-primary [&::-webkit-details-marker]:hidden">
                 <Settings2 size={18} aria-hidden="true" /> Display
@@ -354,7 +455,7 @@ export function App() {
 
       <div className={`mx-auto grid gap-4 p-4 ${calm ? "max-w-4xl" : "max-w-[1440px] lg:grid-cols-[270px_minmax(0,1fr)_420px]"}`}>
         {!calm && (
-          <nav aria-label="Rooms" className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-3 lg:self-start">
+          <nav aria-label="Rooms" className="relative flex flex-col gap-4 rounded-2xl border border-border bg-card p-3 lg:self-start">
             {GROUPS.map(([kind, groupLabel, GroupIcon]) => {
               const items = allRooms.filter((r) => r.kind === kind);
               return (
@@ -427,8 +528,14 @@ export function App() {
 
           {error && <p role="alert" className="rounded-xl border border-border bg-muted p-3">Something went wrong: {error}</p>}
 
-          {!calm && room && <AVPanel key={`${room.id}-${view}`} room={room} organizer={view === "organizer"} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />}
+          {!calm && room && (voice && view === "participant" && room.id === "main" ? (
+            <SampleSpeaker speaking={speaking} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />
+          ) : (
+            <AVPanel key={`${room.id}-${view}`} room={room} code={code} organizer={view === "organizer"} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />
+          ))}
 
+          <div className="relative">
+          <TrackTag track="Merge Forward" label="live captions anyone can read" side="bottom" className="-bottom-10 right-4" />
           <section id="stage" tabIndex={-1} aria-label="Live captions" className="relative overflow-hidden rounded-3xl bg-[#0d1422] text-white shadow-[0_24px_60px_-30px_rgba(15,27,45,0.55)]">
             <div className="flex items-center justify-between gap-2 px-5 pt-4 text-sm text-[#c9d4e6]">
               <span className="inline-flex items-center gap-2 rounded-full bg-black/40 px-3 py-1">
@@ -438,9 +545,9 @@ export function App() {
             </div>
             <div className={`flex flex-col justify-end gap-3 px-5 pb-5 pt-8 ${calm ? "min-h-[46vh]" : "min-h-[220px] lg:min-h-[280px]"}`}>
               {previous && !calm && <p lang={lang} className="text-[#a3b0c5]" style={{ fontSize: "calc(1.05rem * var(--scale))" }}>{text(previous)}</p>}
-              <div aria-hidden="true" className="rounded-2xl bg-[#080c14] px-4 py-3">
+              <div aria-hidden="true" className="rounded-2xl bg-[#080c14] px-4 py-3 text-[#ffffff]">
                 <span className="font-mono block text-[0.72rem] uppercase tracking-[0.12em] text-[#ffd84d]">{latest ? latest.speaker : "Waiting for the speaker"}</span>
-                <p lang={lang} style={{ fontSize: `calc(${calm ? 2 : 1.5}rem * var(--scale))`, lineHeight: 1.35 }}>
+                <p lang={lang} className="text-[#ffffff]" style={{ fontSize: `calc(${calm ? 2 : 1.5}rem * var(--scale))`, lineHeight: 1.35 }}>
                   {latest ? text(latest) : "Captions appear here as soon as someone speaks."}
                 </p>
               </div>
@@ -467,13 +574,16 @@ export function App() {
               </div>
             </div>
           </section>
+          </div>
+
+          {view === "organizer" && !calm && <Insights roomId={roomId} code={code} />}
 
           {signsStarted && <SignAvatar roomId={roomId} code={code} on={signsOn} />}
 
           {view === "organizer" && !calm && (
             <section aria-labelledby="org-h" className="rounded-2xl border border-border bg-card">
               <h2 id="org-h" className="font-display flex items-center gap-2 px-4 pt-4 text-xl font-bold"><Megaphone size={20} aria-hidden="true" /> Organizer tools</h2>
-              <p className="px-4 text-sm text-muted-foreground">Caption the room from your microphone, type an announcement, or replay a sample talk.</p>
+              <p className="px-4 text-sm text-muted-foreground">Caption the room from your microphone, or type an announcement.</p>
               <Presenter roomId={roomId} code={code} />
             </section>
           )}
@@ -518,6 +628,7 @@ export function App() {
 
             <div role="tabpanel" id="panel-transcript" aria-labelledby="tab-transcript" hidden={tab !== "transcript"} className="flex min-h-0 flex-1 flex-col">
               <div className="relative border-b border-border p-3">
+                <TrackTag track="Elasticsearch" label="stores and searches every line" side="bottom" className="right-3 top-[56px]" />
                 <Search size={18} aria-hidden="true" className="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <label htmlFor="search" className="sr-only">Search what was said</label>
                 <input id="search" type="search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search what was said" className={`${input} w-full pl-10`} />
@@ -543,7 +654,8 @@ export function App() {
             </div>
 
             <div role="tabpanel" id="panel-chat" aria-labelledby="tab-chat" hidden={tab !== "chat"} className="flex min-h-0 flex-1 flex-col">
-              <p className="flex items-start gap-2 px-4 pt-3 text-sm text-muted-foreground">
+              <p className="relative flex items-start gap-2 px-4 pt-3 text-sm text-muted-foreground">
+                <TrackTag track="AI + Elasticsearch" label="answers only from the transcript" side="bottom" className="right-3 top-[calc(100%+2px)]" />
                 <Bot size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-primary" />
                 <span>Chat with the room. Start a message with <strong className="text-foreground">@ai</strong> to ask about anything said here. It answers only from the transcript, with the time it was said.</span>
               </p>
@@ -625,6 +737,8 @@ export function App() {
           </aside>
         )}
       </div>
+      <DemoDock view={view} setView={setView} tags={tags} setTags={setTags} sampleOn={voice} onSample={startSample} onStopSample={stopSample} onReset={resetRoom} onLoad={loadTranscript} onAsk={askScenario} hasLines={segments.length > 0} roomId={roomId} roomName={room?.name ?? "this room"} code={code} note={demoNote} />
     </div>
+    </TagsContext.Provider>
   );
 }

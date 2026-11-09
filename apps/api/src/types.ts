@@ -55,6 +55,14 @@ export interface ChatMessage {
   citations?: Citation[];
 }
 
+/** WebRTC signaling between the organizer's broadcast and each viewer, relayed over the room's live stream. */
+export interface Signal {
+  from: string;
+  to: string;
+  type: "join" | "live" | "ended" | "offer" | "answer" | "candidate";
+  data?: unknown;
+}
+
 export interface Citation {
   seq: number;
   ts: string;
@@ -65,5 +73,5 @@ export interface Answer {
   answer: string;
   citations: Citation[];
   /** "extractive" returns the best matching line. An LLM answer mode comes later. */
-  mode: "extractive";
+  mode: "extractive" | "generated";
 }

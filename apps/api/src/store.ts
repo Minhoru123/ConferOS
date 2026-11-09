@@ -11,11 +11,34 @@ export interface Store {
   addSegment(roomId: string, input: NewSegment): Promise<Segment>;
   listSegments(roomId: string, q?: string): Promise<Segment[]>;
   search(roomId: string, q: string, limit?: number): Promise<Segment[]>;
+  /** Removes every line in a room (demo reset). */
+  clear(roomId: string): Promise<void>;
 }
 
-const STOP = new Set(["the", "and", "for", "are", "you", "when", "what", "where", "how", "who", "does", "did", "is", "it", "to", "of", "in", "at", "a", "an", "my", "i"]);
+const STOP = new Set(
+  ("the and for are you when what where how who why which does did do is it to of in on at a an my i me we our us he she they them their his her its this that these those " +
+    "there here with from about will would can could should shall may might be been was were am has have had not no yes so if then than as by into out up down over " +
+    "just also any some say said tell know please hi hello ok okay um uh like get got going gonna want wanna thing things really very much many more most all").split(" "),
+);
 export function tokens(s: string): string[] {
   return s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1 && !STOP.has(w));
+}
+/** A light stem: drop common English endings and keep the first 5 letters, so "submit" matches "submissions". */
+export function terms(s: string): string[] {
+  return tokens(s).map((w) => (w.replace(/(ations|ation|ings|ing|ions|ion|ers|er|ies|ied|es|ed|s)$/, "") || w).slice(0, 5)).filter((w) => w.length > 1);
+}
+/** Ranks lines for a question: rarer shared words count more, and newer lines win ties. Lines with no shared word are dropped. */
+export function rank(list: Segment[], q: string, limit: number): Segment[] {
+  const want = [...new Set(terms(q))];
+  if (!want.length) return [];
+  const docs = list.map((seg) => ({ seg, t: new Set(terms(seg.text)) }));
+  const df = new Map(want.map((w) => [w, docs.filter((d) => d.t.has(w)).length]));
+  return docs
+    .map((d) => ({ seg: d.seg, score: want.reduce((sum, w) => sum + (d.t.has(w) ? Math.log(1 + docs.length / (df.get(w) || 1)) : 0), 0) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || b.seg.seq - a.seg.seq)
+    .slice(0, limit)
+    .map((x) => x.seg);
 }
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "room";
@@ -78,15 +101,13 @@ export class MemoryStore implements Store {
     return list.filter((s) => s.text.toLowerCase().includes(needle));
   }
 
+  async clear(roomId: string) {
+    if (!this.segs.has(roomId)) throw new NotFoundError(`room ${roomId} not found`);
+    this.segs.set(roomId, []);
+  }
+
   async search(roomId: string, q: string, limit = 3) {
-    const list = await this.listSegments(roomId);
-    const want = new Set(tokens(q));
-    return list
-      .map((s) => ({ s, score: tokens(s.text).filter((t) => want.has(t)).length }))
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score || a.s.seq - b.s.seq)
-      .slice(0, limit)
-      .map((x) => x.s);
+    return rank(await this.listSegments(roomId), q, limit);
   }
 }
 
@@ -158,6 +179,12 @@ export class EsStore extends MemoryStore {
     return seg;
   }
 
+  override async clear(roomId: string) {
+    if (!this.rooms.has(roomId)) throw new NotFoundError(`room ${roomId} not found`);
+    await this.es.deleteByQuery({ index: this.index, query: { term: { roomId } }, refresh: true });
+    this.counters.set(roomId, 0);
+  }
+
   override async listSegments(roomId: string, q?: string) {
     if (!this.rooms.has(roomId)) throw new NotFoundError(`room ${roomId} not found`);
     const r = await this.es.search<Segment>({
@@ -172,14 +199,21 @@ export class EsStore extends MemoryStore {
 
   override async search(roomId: string, q: string, limit = 3) {
     if (!this.rooms.has(roomId)) throw new NotFoundError(`room ${roomId} not found`);
-    // Drop stop words first, like the memory store, so "Who won the prize?" does not match every line on "the".
-    const words = tokens(q).join(" ");
-    if (!words) return [];
+    // Elasticsearch finds candidate lines by word and word prefix (stop words removed), then the same ranking as
+    // the memory store picks the best ones, so "submit" also finds "submissions".
+    const stems = [...new Set(terms(q))];
+    if (!stems.length) return [];
     const r = await this.es.search<Segment>({
       index: this.index,
-      size: limit,
-      query: { bool: { filter: [{ term: { roomId } }], must: [{ match: { text: words } }] } },
+      size: 50,
+      query: {
+        bool: {
+          filter: [{ term: { roomId } }],
+          should: [{ match: { text: tokens(q).join(" ") } }, ...stems.map((t) => ({ prefix: { text: t } }))],
+          minimum_should_match: 1,
+        },
+      },
     });
-    return r.hits.hits.map((h) => h._source as Segment);
+    return rank(r.hits.hits.map((h) => h._source as Segment), q, limit);
   }
 }

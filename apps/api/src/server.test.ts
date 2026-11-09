@@ -131,3 +131,48 @@ describe("team zones and chat", () => {
     expect(msgs[2]!.citations).toHaveLength(1);
   });
 });
+
+describe("live broadcast signaling", () => {
+  it("relays signals to the room and checks team zone codes", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    const ok = await app.inject({ method: "POST", url: "/api/rooms/main/signal", payload: { from: "a", to: "broadcaster", type: "join" } });
+    expect(ok.statusCode).toBe(202);
+    const bad = await app.inject({ method: "POST", url: "/api/rooms/main/signal", payload: { from: "a", to: "b", type: "nonsense" } });
+    expect(bad.statusCode).toBe(400);
+  });
+});
+
+describe("organizer stats", () => {
+  it("counts lines, AI questions and caption lag for a room", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    for (const lagMs of [400, 600, 900]) await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "A", text: "Lunch is at one.", source: "mic", lagMs } });
+    await app.inject({ method: "POST", url: "/api/rooms/main/messages", payload: { author: "Ana", text: "@ai when is lunch?" } });
+    const s = (await app.inject({ url: "/api/rooms/main/stats" })).json();
+    expect(s).toMatchObject({ lines: 3, messages: 2, aiQuestions: 1, lagP50: 600, lagP95: 900 });
+  });
+});
+
+describe("demo reset", () => {
+  it("clears a room's lines and chat", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "", dev: true });
+    await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "A", text: "Lunch is at one." } });
+    await app.inject({ method: "POST", url: "/api/rooms/main/messages", payload: { author: "Ana", text: "Hi" } });
+    expect((await app.inject({ method: "POST", url: "/api/dev/reset/main", payload: {} })).statusCode).toBe(202);
+    expect((await app.inject({ url: "/api/rooms/main/segments" })).json()).toHaveLength(0);
+    expect((await app.inject({ url: "/api/rooms/main/messages" })).json()).toHaveLength(0);
+  });
+});
+
+describe("smarter answers from live speech", () => {
+  it("matches word stems and prefers the line that shares the rarest words", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    const say = (text: string) => app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "Judge", text } });
+    await say("Building starts at eleven.");
+    await say("Project submissions close at five thirty.");
+    await say("We are building a tool that captions every talk.");
+    const ask = async (question: string) => (await app.inject({ method: "POST", url: "/api/rooms/main/ask", payload: { question } })).json() as { answer: string; citations: unknown[] };
+    expect((await ask("When do I need to submit?")).answer).toContain("submissions close");
+    expect((await ask("What are you building?")).answer).toContain("captions every talk");
+    expect((await ask("Who won last year?")).citations).toHaveLength(0);
+  });
+});
