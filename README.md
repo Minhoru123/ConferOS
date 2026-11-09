@@ -1,12 +1,24 @@
 # ConferOS: Backchannel
 
-Live captions for every talk, so nothing said on stage gets lost.
+**Nothing said at a conference gets lost.**
 
-At a big event it is hard for anyone to keep up. Announcements get missed, rooms are noisy, some people find live speech hard to follow, and once something is said it is gone. Backchannel turns what is said on stage into a live, searchable transcript that anyone can follow on their own screen, at their own pace, and ask questions about.
+Today's hackathon has around 200 people in one building, a main stage, mentors in side rooms, and teams forming on the spot. Announcements get missed while people code, the room is loud, not everyone hears well or speaks English first, and the person you should meet is three tables away. Backchannel turns every room of an event into a live, searchable, translated transcript with an AI you can ask, plus rooms that help people find each other.
 
 Built by team Ctrl-Alt-Build at the Cloud Native Hackathon (WeMakeDevs, Salt Lake City, November 9, 2026).
 
 Architecture board: https://www.figma.com/board/c9XDkwm2grU3XOgref2hE4/ConferOS
+
+## What you can do
+
+- **Follow any room live.** The main room, focus groups and team zones each have live captions and a transcript that every attendee sees on their own screen.
+- **Ask the AI in chat.** Start a chat message with `@ai`, for example `@ai when is lunch?`. It answers only from what was said in that room and shows when it was said. If it was not said, it says so instead of guessing.
+- **Read it in your language.** Pick a language and captions and the transcript translate on your device (Chrome 138 or later).
+- **See and hear the room.** Turn on your camera with live captions on top, or open the room's group call.
+- **Meet people.** Focus groups are open rooms around a topic. Team zones are private rooms you join with a code, for people with aligned interests to build together.
+- **Catch up without stress.** Pause the captions without losing your place, jump back to live, search what was said, or switch to captions only.
+- **Organizer view.** Caption a room from the microphone, type announcements, and go live on camera. Participant view hides all of that.
+
+Accessibility is built in rather than switched on: the layout follows the system's contrast and reduced-motion settings, works with a keyboard and screen readers, keeps touch targets large, and has a small Display menu for text size, contrast and a captions-only layout.
 
 ## Try it
 
@@ -16,47 +28,41 @@ You need Docker.
 docker compose --profile app up --build
 ```
 
-Open http://localhost:8090. The first start takes a minute while Elasticsearch boots.
+Open http://localhost:8090 in Chrome. The first start takes a minute while Elasticsearch boots.
 
-1. Open **Presenter tools** under the transcript and press **Start captions from microphone** (Chrome or Edge, allow the microphone). Talk, and each phrase appears as a caption and a transcript line for every viewer. No microphone? Type a line, or press **Replay sample talk**.
-2. Search the transcript, or ask a question such as "When is lunch?" under **Ask about this room**. The answer comes only from what was said, with the time it was said.
-3. Try the reading controls: text size, **High contrast**, **Calm mode**, **Pause** (with a count of missed lines and a jump back to live) and **Read new lines aloud** for screen readers.
-
-## What it does
-
-- **Live captions from the microphone** using the browser's speech recognition. A typed-line fallback and a sample talk for demos.
-- **Live transcript** pushed to every viewer over server-sent events, per room (main stage, focus rooms, team rooms).
-- **Search** across what was said, stored in Elasticsearch.
-- **Ask with citations.** Answers are taken only from the transcript and link back to the line. If something was not said, it says so instead of guessing.
-- **Built for when it is too much.** Text size, high contrast, calm mode (one column, only the latest lines, larger text), pause and catch up, screen reader announcements that are off unless you turn them on, keyboard friendly controls with a skip link and large touch targets.
-- **Presenter key.** Set `PRESENTER_KEY` and only the presenter can add lines. Reading, searching and asking stay open.
+1. Switch to **Organizer view**, press **Start captions from microphone** under Organizer tools, and talk. Or press **Replay sample talk**.
+2. Press **Start camera** to see yourself live with captions on the video.
+3. Switch to **Participant view** in another window. Captions and the transcript arrive live.
+4. Open **Chat** and send `@ai when is lunch?`.
+5. Pick **Español** in the language menu.
+6. Under **Start or join a room**, create a team zone, copy its join code, and join it from another window.
 
 ## Hackathon tracks
 
-| Track | How Backchannel uses it |
-| --- | --- |
-| Elasticsearch | The transcript store and search for every room. Ask retrieves the lines it answers from. |
-| Dash0 | OpenTelemetry traces for every request, custom spans for line ingest and Ask, and a `backchannel.caption.lag` metric for how long final captions take. |
-| Merge Forward | Accessibility is the product: captions, calm mode, contrast, text size, pause and catch up, screen reader control. |
-| Sonar (Gitar) | Every change landed through pull requests reviewed by Gitar. Its findings on #2 and #3 (a sequence race, stop words in search, room-switch races, startup ordering) were fixed in #3. |
-| Radar | Kubernetes manifests and a kind config are included, ready to run on a Radar-connected cluster. |
+| Track | How Backchannel uses it today | How it makes Backchannel better next |
+| --- | --- | --- |
+| Elasticsearch | Stores and searches every room's transcript. The AI chat answers from what Elasticsearch finds. | Hybrid keyword and vector search across every room and day, so "@ai where did someone explain tracing?" finds the right talk. |
+| Dash0 | OpenTelemetry traces for every request, spans for line ingest and AI answers, and a caption lag metric. | A caption-lag SLO per room, with Agent0 telling organizers when captions fall behind before attendees notice. |
+| Sonar (Gitar) | Every change landed through pull requests reviewed by Gitar. Its findings were fixed in the same pull requests. | Project rules for accessibility and privacy, so reviews catch regressions in captions or contrast. |
+| Radar | Kubernetes manifests and a kind config, ready for a Radar-connected cluster. | Radar's AI investigations on the live event cluster, so a crashing captions pod is diagnosed during the talk, not after. |
+| Merge Forward | Captions, translation, pause and catch up, captions-only layout, keyboard and screen reader support. | Sign language avatars and plain-language summaries for each talk. |
 
 ## How it works
 
 ```
-Presenter page (mic or typed) --POST lines--> API (Fastify, TypeScript) --stores and searches--> Elasticsearch
-                                                    |  live stream (SSE)
-                                                    v
-                                     Attendee app (React, Tailwind, shadcn/ui)
-API --OpenTelemetry--> Dash0          API runs on Kubernetes (kind locally, Radar-connected cluster)
+Organizer (mic captions, camera) --lines--> API (Fastify, TypeScript) --stores and searches--> Elasticsearch
+                                                 | live stream (SSE): captions and chat
+                                                 v
+                     Participants (React, Tailwind, shadcn/ui): captions, transcript, chat with @ai, translation
+API --OpenTelemetry--> Dash0              API runs on Kubernetes (kind locally, Radar-connected cluster)
 ```
 
 ```
-apps/api      Fastify API: rooms, lines, live stream, Ask, presenter key, telemetry
-apps/web      React app: captions, transcript, search, Ask, reading controls, presenter tools
+apps/api      Fastify API: rooms, team zones, transcript lines, chat, AI answers, live stream, telemetry
+apps/web      React app: rooms, camera, captions, transcript, chat, translation, organizer tools
 deploy        kind config and Kubernetes manifests
-design        Clickable design prototype
 kb            Goals and plan
+docs          Pitch for the demo
 ```
 
 ## Develop
@@ -68,14 +74,7 @@ npm install
 npm run dev
 ```
 
-The web app runs at http://localhost:5173 and the API at http://localhost:8787. Without `ELASTICSEARCH_URL` the API keeps lines in memory. To use Elasticsearch locally:
-
-```bash
-npm run es:up
-ELASTICSEARCH_URL=http://localhost:9200 npm run dev -w apps/api
-```
-
-Checks:
+The web app runs at http://localhost:5173 and the API at http://localhost:8787. Without `ELASTICSEARCH_URL` the API keeps lines in memory.
 
 ```bash
 npm run typecheck
@@ -104,8 +103,6 @@ kubectl create secret generic otel \
 
 ## Send telemetry to Dash0
 
-Set the standard OpenTelemetry variables with the OTLP HTTP endpoint and an ingest token from your Dash0 account, then start the API:
-
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT='https://ingress.<region>.dash0.com' \
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer ${DASH0_TOKEN},Dash0-Dataset=default" \
@@ -113,14 +110,14 @@ OTEL_SERVICE_NAME=backchannel-api \
 npm run dev -w apps/api
 ```
 
-Traces show up under the service `backchannel-api`. Never commit the token.
+Traces appear under the service `backchannel-api`. Never commit the token.
 
 ## Known limits
 
-- Live updates are fanned out inside one API process, so the API runs as one replica. Serving many rooms at a large event needs shared fan-out (for example Redis pub/sub).
-- Microphone captions need Chrome or Edge on localhost or HTTPS, and the audio goes to the browser's speech service.
-- `backchannel.caption.lag` is measured in the presenter's browser from the last partial caption to the final text. It is not the full time to every viewer's screen.
-- Ask returns the best matching line. Generated answers, translation, summaries and video rooms are planned, not built.
+- The camera shows your own feed with captions. Sharing video between people uses the room's group call (Jitsi Meet), which opens in a new tab.
+- Microphone captions and on-device translation need Chrome or Edge. Captions need localhost or HTTPS.
+- Live updates and chat are fanned out inside one API process, so the API runs as one replica. A large event needs shared fan-out such as Redis pub/sub.
+- The AI answers with the best matching line from the transcript. Generated answers and summaries are next.
 
 ## AI assistance
 
