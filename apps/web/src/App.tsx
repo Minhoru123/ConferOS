@@ -193,10 +193,21 @@ export function App() {
     spokenRef.current = latest.id;
     const u = new SpeechSynthesisUtterance(latest.text);
     u.lang = "en-US";
+    // Prefer the most natural voice installed (Premium, Enhanced or Siri voices on a Mac, Google voices in Chrome).
+    const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.startsWith("en"));
+    const prefer = [/premium/i, /enhanced/i, /natural/i, /neural/i, /siri/i, /Google US English/i, /Samantha/i, /Ava/i, /Daniel/i];
+    const best = prefer.map((re) => voices.find((v) => re.test(v.name))).find(Boolean) ?? voices.find((v) => v.lang === "en-US");
+    if (best) u.voice = best;
+    u.rate = 1;
+    u.pitch = 1;
     u.onstart = () => setSpeaking(true);
     u.onend = () => setSpeaking(false);
     window.speechSynthesis.speak(u);
   }, [voice, latest]);
+  // Voices load asynchronously in some browsers; ask early so the first line does not use the fallback voice.
+  useEffect(() => {
+    if ("speechSynthesis" in window) window.speechSynthesis.getVoices();
+  }, []);
   function startSample() {
     spokenRef.current = latest?.id ?? "";
     setVoice(true);
