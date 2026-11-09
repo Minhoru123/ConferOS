@@ -265,6 +265,7 @@ var RULES = [
 var app = document.getElementById("app");
 var tEl = document.getElementById("transcript");
 var received = 0, shown = 0, paused = false, connected = false, lang = "en", term = "", scale = 1, announce = false;
+var hits = null; /* server search results for the current term: { ids, meaning, mode } */
 
 function txt(l) { return l[lang] || l.en; }
 function esc(s) { return s.replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -275,11 +276,11 @@ function hl(text) {
   return safe.replace(re, "<mark>$1</mark>");
 }
 function render(stick) {
-  var list = LINES.slice(0, shown).filter(function (l) { return !term || txt(l).toLowerCase().indexOf(term.toLowerCase()) > -1; });
+  var list = LINES.slice(0, shown).filter(function (l) { return !term || (hits && hits.ids[l.id]) || txt(l).toLowerCase().indexOf(term.toLowerCase()) > -1; });
   if (!list.length) { tEl.innerHTML = term ? '<p class="empty">No lines match "' + esc(term) + '" yet.</p>' : '<p class="empty">Waiting for the first line.</p>'; }
   else {
     tEl.innerHTML = list.map(function (l) {
-      return '<div class="line" id="line-' + l.id + '"><time>' + esc(l.t) + '</time><p><span class="who">' + esc(l.who) + '</span>' + hl(txt(l)) + '</p></div>';
+      return '<div class="line" id="line-' + l.id + '"><time>' + esc(l.t) + '</time><p><span class="who">' + esc(l.who) + (hits && hits.meaning[l.id] ? '<span class="tag">Found by meaning</span>' : '') + '</span>' + hl(txt(l)) + '</p></div>';
     }).join("");
   }
   if (stick) tEl.scrollTop = tEl.scrollHeight;
@@ -291,7 +292,8 @@ function render(stick) {
   document.getElementById("liveText").textContent = paused ? "Paused" : (connected ? "Live" : "Reconnecting");
   live.classList.toggle("off", paused || !connected);
   updateCap();
-  document.getElementById("foot").textContent = (lang === "es" ? "Traducción automática de ejemplo. " : "") + "Captions are generated automatically and can contain errors. Sample content for this prototype.";
+  var how = { hybrid: "Searched with Elasticsearch, by words and by meaning. ", words: "Searched with Elasticsearch, by words. ", memory: "Searched on this server only (Elasticsearch is not connected). " };
+  document.getElementById("foot").textContent = (term && hits ? how[hits.mode] || "" : "") + (lang === "es" ? "Traducción automática de ejemplo. " : "") + "Captions are generated automatically and can contain errors. Sample content for this prototype.";
 }
 function tick() {
   if (received < LINES.length) {
@@ -315,7 +317,22 @@ document.getElementById("pause").onclick = function () {
   paused = !paused;
   if (!paused) { shown = received; render(true); } else render(false);
 };
-document.getElementById("search").oninput = function (e) { term = e.target.value.trim(); render(false); };
+/* Search: filter right away by the words typed, then show the server's word and meaning results */
+var searchTimer = null;
+document.getElementById("search").oninput = function (e) {
+  term = e.target.value.trim(); hits = null; render(false);
+  clearTimeout(searchTimer);
+  if (!term) return;
+  var asked = term;
+  searchTimer = setTimeout(function () {
+    fetch("/api/search?q=" + encodeURIComponent(asked)).then(function (r) { return r.ok ? r.json() : null; }).then(function (data) {
+      if (!data || asked !== term) return;
+      hits = { ids: {}, meaning: {}, mode: data.mode };
+      data.results.forEach(function (h) { hits.ids[h.id] = true; if (h.byMeaning) hits.meaning[h.id] = true; });
+      render(false);
+    }).catch(function () {});
+  }, 250);
+};
 document.getElementById("lang").onchange = function (e) { lang = e.target.value; render(false); };
 document.getElementById("larger").onclick = function () { scale = Math.min(1.6, +(scale + 0.15).toFixed(2)); app.style.setProperty("--scale", scale); };
 document.getElementById("smaller").onclick = function () { scale = Math.max(0.85, +(scale - 0.15).toFixed(2)); app.style.setProperty("--scale", scale); };

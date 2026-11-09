@@ -19,6 +19,7 @@ npm start
 - Attendees: http://localhost:3000
 - Presenter (microphone or typed lines, restart the demo): http://localhost:3000/presenter.html
 - Speaker screen, for a phone or monitor facing the speaker: http://localhost:3000/speaker.html. It says "Slow down a little" when the speaker goes over 170 words a minute or captions fall more than 6 seconds behind (median of the last 200 captions). Only microphone lines count. It also shows the audience question the moderator picked.
+- Search: the transcript search box asks the server, which searches Elasticsearch by words (typo tolerant, English and Spanish) and by meaning (OpenAI `text-embedding-3-small` vectors) at the same time and merges the two (reciprocal rank fusion). Lines found only by meaning are labelled. Lines are copied to Elasticsearch every 2 seconds; without it, or while it is down, search runs on the lines in memory.
 - Questions for the speaker: attendees send them from the Ask tab. Repeats are grouped (keywords without accents or small words, 70% overlap) so the most asked come first, and the moderator shows one on the speaker screen from the presenter page. Nothing about who asked is stored, and each address can send 6 a minute.
 
 On start, the server replays a short scripted kickoff so there is something to follow without a microphone. The microphone needs Edge or Chrome, and the page must be on localhost or HTTPS.
@@ -34,6 +35,10 @@ Put these in the environment or in a `.env` file.
 | `REPLAY` | `on` | `off` turns off the scripted kickoff |
 | `REPLAY_INTERVAL_MS` | `6000` | Time between replayed lines |
 | `EVENT_TZ` | `America/Denver` | Time zone for the time shown next to each line |
+| `ELASTIC_URL` | empty (search in memory) | Elasticsearch address, for example `https://...es.io` or `http://localhost:9200` |
+| `ELASTIC_API_KEY` | empty | Elasticsearch API key. Or set `ELASTIC_USERNAME` (default `elastic`) and `ELASTIC_PASSWORD`. |
+| `ELASTIC_INDEX` | `backchannel-lines` | Index name |
+| `OPENAI_API_KEY` | empty (words only) | Turns on search by meaning. Queries are sent to OpenAI for embedding and are never logged. |
 
 ### API
 
@@ -46,6 +51,7 @@ Put these in the environment or in a `.env` file.
 | `GET /api/questions` | Grouped questions for the moderator, most asked first. Needs the presenter key. |
 | `POST /api/questions/:id/status` | `{ "status": "open" or "shown" or "answered" or "dismissed" }`. Showing one takes any other off the speaker screen. Needs the presenter key. |
 | `GET /api/questions/shown` | `{ text, count }` of the question on the speaker screen, or `null`. |
+| `GET /api/search?q=...` | `{ mode, results: [{ id, t, who, text, byMeaning }] }`, best first. `mode` is `hybrid`, `words` or `memory`. Search by meaning is limited to 30 a minute per address. |
 | `POST /api/replay` | Clears the transcript and questions and restarts the scripted kickoff. Needs the presenter key when one is set. |
 
 ### Tests

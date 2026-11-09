@@ -4,6 +4,7 @@ import { addLine, allLines, events } from "./transcript.js";
 import { startReplay } from "./replay.js";
 import { pace } from "./pacing.js";
 import { addQuestion, groups, setStatus, shownQuestion, STATUSES } from "./questions.js";
+import { search, startSync } from "./search.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 const PRESENTER_KEY = process.env.PRESENTER_KEY || "";
@@ -86,11 +87,20 @@ app.post("/api/questions/:id/status", presenterOnly, (req, res) => {
 // The question on the speaker screen, if any. Public, since it is meant to be seen.
 app.get("/api/questions/shown", (req, res) => res.json(shownQuestion()));
 
+// Search the transcript by words and by meaning. Meaning search costs an embedding call,
+// so each address gets 30 a minute (TalkLens's limit); after that it searches by words only.
+app.get("/api/search", async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  if (!q || q.length > 200) return res.status(400).json({ error: "q must be 1 to 200 characters" });
+  res.json(await search(q, !rateLimited(`meaning:${req.ip}`, 30)));
+});
+
 app.post("/api/replay", presenterOnly, (req, res) => {
   startReplay(REPLAY_MS);
   res.status(202).end();
 });
 
+startSync();
 if (process.env.REPLAY !== "off") startReplay(REPLAY_MS);
 app.listen(PORT, () => {
   console.log(`Backchannel on http://localhost:${PORT} (presenter page: /presenter.html)`);
