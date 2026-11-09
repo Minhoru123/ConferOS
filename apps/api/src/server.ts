@@ -65,6 +65,35 @@ async function translateOne(text: string, target: string): Promise<string | null
   }
 }
 
+/**
+ * With OPENAI_API_KEY set, the assistant writes a short answer from the retrieved lines only. Without it, or if the
+ * call fails, it returns the best matching line. Either way, answers are grounded in what was said.
+ */
+async function generate(question: string, lines: Segment[]): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: "You answer questions from conference attendees using ONLY the transcript lines provided. Answer in one or two short, plain sentences. If the lines do not contain the answer, reply exactly: That hasn't been said in this room yet." },
+          { role: "user", content: `Transcript lines:\n${lines.map((l) => `- ${l.speaker}: ${l.text}`).join("\n")}\n\nQuestion: ${question}` },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    return body.choices?.[0]?.message?.content?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Rooms as everyone may see them: no join codes, no private zones. */
 const publicRoom = ({ code: _code, ...r }: Room) => r;
 /** "@ai when is lunch?" or "/ask when is lunch?" asks the assistant. */
@@ -108,10 +137,14 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
   async function answer(roomId: string, question: string): Promise<Answer> {
     return tracer.startActiveSpan("ask.retrieve", async (span) => {
       try {
-        const hits = await store.search(roomId, question, 3);
+        const hits = await store.search(roomId, question, 4);
         span.setAttributes({ "room.id": roomId, "ask.hits": hits.length });
         if (!hits.length) return { answer: "That hasn't been said in this room yet, or I couldn't find it in the transcript so far.", citations: [], mode: "extractive" as const };
-        return { answer: hits[0]!.text, citations: hits.map((h) => ({ seq: h.seq, ts: h.ts, speaker: h.speaker })), mode: "extractive" as const };
+        const citations = hits.slice(0, 3).map((h) => ({ seq: h.seq, ts: h.ts, speaker: h.speaker }));
+        const generated = await generate(question, hits);
+        span.setAttribute("ask.mode", generated ? "generated" : "extractive");
+        if (generated) return { answer: generated, citations, mode: "generated" as const };
+        return { answer: hits[0]!.text, citations, mode: "extractive" as const };
       } finally {
         span.end();
       }

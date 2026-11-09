@@ -33,7 +33,7 @@ export interface Citation {
 export interface Answer {
   answer: string;
   citations: Citation[];
-  mode: "extractive";
+  mode: "extractive" | "generated";
 }
 export interface ChatMessage {
   id: string;

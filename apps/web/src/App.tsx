@@ -544,9 +544,9 @@ export function App() {
             </div>
             <div className={`flex flex-col justify-end gap-3 px-5 pb-5 pt-8 ${calm ? "min-h-[46vh]" : "min-h-[220px] lg:min-h-[280px]"}`}>
               {previous && !calm && <p lang={lang} className="text-[#a3b0c5]" style={{ fontSize: "calc(1.05rem * var(--scale))" }}>{text(previous)}</p>}
-              <div aria-hidden="true" className="rounded-2xl bg-[#080c14] px-4 py-3">
+              <div aria-hidden="true" className="rounded-2xl bg-[#080c14] px-4 py-3 text-[#ffffff]">
                 <span className="font-mono block text-[0.72rem] uppercase tracking-[0.12em] text-[#ffd84d]">{latest ? latest.speaker : "Waiting for the speaker"}</span>
-                <p lang={lang} style={{ fontSize: `calc(${calm ? 2 : 1.5}rem * var(--scale))`, lineHeight: 1.35 }}>
+                <p lang={lang} className="text-[#ffffff]" style={{ fontSize: `calc(${calm ? 2 : 1.5}rem * var(--scale))`, lineHeight: 1.35 }}>
                   {latest ? text(latest) : "Captions appear here as soon as someone speaks."}
                 </p>
               </div>

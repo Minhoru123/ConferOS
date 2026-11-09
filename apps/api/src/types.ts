@@ -73,5 +73,5 @@ export interface Answer {
   answer: string;
   citations: Citation[];
   /** "extractive" returns the best matching line. An LLM answer mode comes later. */
-  mode: "extractive";
+  mode: "extractive" | "generated";
 }

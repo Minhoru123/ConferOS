@@ -2,6 +2,7 @@ import { ExternalLink, Mic, MicOff, PhoneOff, Radio, Users, Video, VideoOff, Vol
 import { useEffect, useRef, useState } from "react";
 import { api, type Room, type Signal } from "./api";
 import { ICE_SERVERS, peerId, signals } from "./live";
+import { SampleSpeaker } from "./SampleSpeaker";
 
 type Props = { room: Room; code?: string; organizer: boolean; caption?: string; speaker?: string };
 
@@ -22,7 +23,7 @@ function CaptionOverlay({ caption, speaker }: { caption?: string; speaker?: stri
   return (
     <div aria-hidden="true" className="absolute inset-x-3 bottom-[72px] rounded-xl bg-[#080c14]/85 px-4 py-2 text-white">
       <span className="font-mono block text-[0.7rem] uppercase tracking-[0.12em] text-[#ffd84d]">{speaker}</span>
-      <p style={{ fontSize: "calc(1.25rem * var(--scale))", lineHeight: 1.35 }}>{caption}</p>
+      <p className="text-[#ffffff]" style={{ fontSize: "calc(1.25rem * var(--scale))", lineHeight: 1.35 }}>{caption}</p>
     </div>
   );
 }
@@ -219,6 +220,8 @@ function Viewer({ room, code, caption, speaker }: Props) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Until the organizer goes live, the main stage shows the placeholder stream with live captions on it.
+  if (!remote && room.kind === "stage") return <SampleSpeaker speaking={false} caption={caption} speaker={speaker} />;
   if (!remote) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">

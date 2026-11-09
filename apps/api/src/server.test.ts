@@ -162,3 +162,17 @@ describe("demo reset", () => {
     expect((await app.inject({ url: "/api/rooms/main/messages" })).json()).toHaveLength(0);
   });
 });
+
+describe("smarter answers from live speech", () => {
+  it("matches word stems and prefers the line that shares the rarest words", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    const say = (text: string) => app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "Judge", text } });
+    await say("Building starts at eleven.");
+    await say("Project submissions close at five thirty.");
+    await say("We are building a tool that captions every talk.");
+    const ask = async (question: string) => (await app.inject({ method: "POST", url: "/api/rooms/main/ask", payload: { question } })).json() as { answer: string; citations: unknown[] };
+    expect((await ask("When do I need to submit?")).answer).toContain("submissions close");
+    expect((await ask("What are you building?")).answer).toContain("captions every talk");
+    expect((await ask("Who won last year?")).citations).toHaveLength(0);
+  });
+});
