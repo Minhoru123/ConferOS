@@ -1,0 +1,14 @@
+# Build from the repo root: docker build -f apps/web/Dockerfile -t backchannel-web:dev .
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+RUN npm ci
+COPY apps/web apps/web
+RUN npm run build -w apps/web
+
+FROM nginx:alpine
+COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+EXPOSE 80
