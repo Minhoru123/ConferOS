@@ -58,7 +58,7 @@ export class MemoryStore implements Store {
   }
 
   protected newSegment(roomId: string, seq: number, input: NewSegment): Segment {
-    return { id: `${roomId}-${seq}`, roomId, seq, ts: new Date().toISOString(), speaker: input.speaker, lang: input.lang ?? "en", text: input.text };
+    return { id: `${roomId}-${seq}`, roomId, seq, ts: new Date().toISOString(), speaker: input.speaker, lang: input.lang ?? "en", text: input.text, ...(input.source ? { source: input.source } : {}), ...(input.lagMs !== undefined ? { lagMs: input.lagMs } : {}) };
   }
 
   async addSegment(roomId: string, input: NewSegment) {
@@ -111,6 +111,8 @@ export class EsStore extends MemoryStore {
             ts: { type: "date" },
             speaker: { type: "keyword" },
             lang: { type: "keyword" },
+            source: { type: "keyword" },
+            lagMs: { type: "integer" },
             text: { type: "text" },
             // Next: add a dense_vector field for hybrid (keyword + semantic) search.
           },
