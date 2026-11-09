@@ -4,11 +4,11 @@ const at = "2026-11-09T16:00:00.000Z";
 const room = (id: string, kind: Room["kind"], name: string, desc: string, video = true): Room => ({ id, kind, name, desc, video, audio: true, priv: false, createdAt: at });
 
 export const SEED_ROOMS: Room[] = [
-  room("main", "stage", "Main stage", "Kickoff, talks and announcements"),
-  room("observability", "focus", "Observability", "Traces, logs and dashboards with a mentor"),
-  room("accessibility", "focus", "Accessibility", "Captions, screen readers and testing"),
-  room("kubernetes-101", "focus", "Kubernetes 101", "First time with clusters? Start here", false),
-  room("ctrl-alt-build", "team", "Ctrl-Alt-Build", "Our demo. Drop by and ask us anything"),
+  room("main", "stage", "Main stage", "Kickoff, talks and announcements for everyone"),
+  room("observability", "focus", "Observability", "Focus group: traces, logs and dashboards with a mentor"),
+  room("accessibility", "focus", "Accessibility", "Focus group: making events work for everyone"),
+  room("kubernetes-101", "focus", "Kubernetes 101", "Focus group: first time with clusters? Start here"),
+  room("ctrl-alt-build", "team", "Ctrl-Alt-Build", "Team zone: drop by and see what we are building"),
 ];
 
 /** Sample lines used by the dev replay endpoint, so demos work without a live microphone. */

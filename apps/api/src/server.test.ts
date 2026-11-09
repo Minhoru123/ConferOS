@@ -102,3 +102,32 @@ describe("client errors", () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+
+describe("team zones and chat", () => {
+  it("hides private team zones from the room list and lets people join with the code", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    const made = (await app.inject({ method: "POST", url: "/api/rooms", payload: { name: "Our zone", kind: "team", priv: true } })).json() as { id: string; code: string };
+    expect(made.code).toMatch(/^[0-9A-F]{6}$/);
+    const listed = (await app.inject({ url: "/api/rooms" })).json() as { id: string; code?: string }[];
+    expect(listed.some((r) => r.id === made.id)).toBe(false);
+    expect(listed.every((r) => r.code === undefined)).toBe(true);
+    expect((await app.inject({ url: `/api/rooms/${made.id}/segments` })).statusCode).toBe(403);
+    expect((await app.inject({ url: `/api/rooms/${made.id}/segments?code=${made.code.toLowerCase()}` })).statusCode).toBe(200);
+    const joined = await app.inject({ method: "POST", url: "/api/rooms/join", payload: { code: made.code } });
+    expect(joined.json().id).toBe(made.id);
+    expect((await app.inject({ method: "POST", url: "/api/rooms/join", payload: { code: "ZZZZZZ" } })).statusCode).toBe(404);
+  });
+
+  it("answers @ai questions in chat from the transcript, with a citation", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "Organizer", text: "Lunch will be at one o'clock." } });
+    await app.inject({ method: "POST", url: "/api/rooms/main/messages", payload: { author: "Ana", text: "Hi all" } });
+    await app.inject({ method: "POST", url: "/api/rooms/main/messages", payload: { author: "Ana", text: "@ai when is lunch?" } });
+    const msgs = (await app.inject({ url: "/api/rooms/main/messages" })).json() as { author: string; bot?: boolean; text: string; citations?: unknown[] }[];
+    expect(msgs).toHaveLength(3);
+    expect(msgs[2]!.bot).toBe(true);
+    expect(msgs[2]!.text).toContain("Lunch");
+    expect(msgs[2]!.citations).toHaveLength(1);
+  });
+});
