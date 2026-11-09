@@ -18,7 +18,8 @@ npm start
 
 - Attendees: http://localhost:3000
 - Presenter (microphone or typed lines, restart the demo): http://localhost:3000/presenter.html
-- Speaker screen, for a phone or monitor facing the speaker: http://localhost:3000/speaker.html. It says "Slow down a little" when the speaker goes over 170 words a minute or captions fall more than 6 seconds behind (median of the last 200 captions). Only microphone lines count.
+- Speaker screen, for a phone or monitor facing the speaker: http://localhost:3000/speaker.html. It says "Slow down a little" when the speaker goes over 170 words a minute or captions fall more than 6 seconds behind (median of the last 200 captions). Only microphone lines count. It also shows the audience question the moderator picked.
+- Questions for the speaker: attendees send them from the Ask tab. Repeats are grouped (keywords without accents or small words, 70% overlap) so the most asked come first, and the moderator shows one on the speaker screen from the presenter page. Nothing about who asked is stored, and each address can send 6 a minute.
 
 On start, the server replays a short scripted kickoff so there is something to follow without a microphone. The microphone needs Edge or Chrome, and the page must be on localhost or HTTPS.
 
@@ -41,7 +42,11 @@ Put these in the environment or in a `.env` file.
 | `GET /api/stream` | Server-Sent Events. `snapshot` carries the whole transcript on connect and after a restart; `line` carries each new line. |
 | `POST /api/lines` | `{ "text": "...", "who": "Speaker", "source": "mic" or "typed", "lagMs": 800 }` adds a line. Needs the `x-presenter-key` header when a key is set. |
 | `GET /api/pace` | `{ live, wordsPerMinute, behindMs, tooFast, behind, fastAbove }` for the speaker screen. |
-| `POST /api/replay` | Clears the transcript and restarts the scripted kickoff. Needs the presenter key when one is set. |
+| `POST /api/questions` | `{ "question": "..." }`, 1 to 500 characters, 6 a minute per address. |
+| `GET /api/questions` | Grouped questions for the moderator, most asked first. Needs the presenter key. |
+| `POST /api/questions/:id/status` | `{ "status": "open" or "shown" or "answered" or "dismissed" }`. Showing one takes any other off the speaker screen. Needs the presenter key. |
+| `GET /api/questions/shown` | `{ text, count }` of the question on the speaker screen, or `null`. |
+| `POST /api/replay` | Clears the transcript and questions and restarts the scripted kickoff. Needs the presenter key when one is set. |
 
 ### Tests
 

@@ -11,10 +11,17 @@
   .pace { margin: 0; padding: 24px; border-radius: 16px; background: var(--warn-bg); color: var(--warn-fg); font-size: clamp(1.6rem, 5vw, 3rem); font-weight: 700; }
   .pace[hidden] { display: none; }
   .stats { margin: 0; color: var(--muted); font-size: clamp(1rem, 3vw, 1.5rem); }
+  .question { margin: 0; font-size: clamp(1.4rem, 4vw, 2.4rem); font-weight: 700; }
+  .label { margin: 0 0 4px; color: var(--muted); font-size: clamp(1rem, 3vw, 1.4rem); }
 </style>
 </head>
 <body>
 <p id="pace" class="pace" hidden aria-live="assertive"></p>
+<section aria-live="polite">
+  <p class="label">Question from the audience</p>
+  <p id="question" class="question">No question right now</p>
+  <p id="askedBy" class="stats" hidden></p>
+</section>
 <p id="stats" class="stats">Waiting for the speaker to start.</p>
 <script>
 /* Polls like TalkLens's speaker screen; texts are TalkLens's own */
@@ -28,6 +35,13 @@ function show() {
     document.getElementById("stats").textContent = !p.live ? "Waiting for the speaker to start."
       : (p.wordsPerMinute ? p.wordsPerMinute + " words a minute" : "Measuring pace") + " · captions " + (p.behindMs / 1000).toFixed(1) + " s behind";
   }).catch(function () { document.getElementById("stats").textContent = "Can't reach the server. Retrying."; });
+  fetch("/api/questions/shown").then(function (r) { return r.json(); }).then(function (q) {
+    var text = q ? q.text : "No question right now", by = q && q.count > 1 ? "Asked by " + q.count + " people" : "";
+    var el = document.getElementById("question"), byEl = document.getElementById("askedBy");
+    if (el.textContent !== text) el.textContent = text;
+    if (byEl.textContent !== by) byEl.textContent = by;
+    byEl.hidden = !by;
+  }).catch(function () {});
 }
 show();
 setInterval(show, 5000);

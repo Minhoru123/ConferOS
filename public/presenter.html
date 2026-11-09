@@ -35,7 +35,11 @@
   <input id="text" autocomplete="off">
   <button type="submit">Send line</button>
 </form>
-<button id="replay" type="button" class="secondary">Restart demo script (clears the transcript)</button>
+<button id="replay" type="button" class="secondary">Restart demo script (clears the transcript and questions)</button>
+
+<h2>Questions from the audience</h2>
+<p>Only you see these, most asked first. Nobody sees who asked.</p>
+<ul id="questions"><li>Loading.</li></ul>
 
 <script>
 function $(id) { return document.getElementById(id); }
@@ -49,6 +53,7 @@ function post(path, body) {
   }).then(function (r) {
     if (r.status === 401) throw new Error("Wrong presenter key.");
     if (!r.ok) throw new Error("The server refused it (" + r.status + ").");
+    return r;
   });
 }
 function send(text, source, lagMs) {
@@ -97,6 +102,49 @@ $("typeForm").onsubmit = function (e) {
 $("replay").onclick = function () {
   post("/api/replay").then(function () { say("Demo script restarted."); }, function (e) { say(e.message); });
 };
+
+/* Moderating questions. Built with textContent because the text comes from attendees.
+   Redrawn only when something changed, so a focused button is not replaced under the moderator. */
+var ACTIONS = {
+  open: [["shown", "Show to speaker"], ["answered", "Answered"], ["dismissed", "Dismiss"]],
+  shown: [["open", "Hide from speaker"], ["answered", "Answered"]],
+  answered: [["open", "Back to the queue"]],
+  dismissed: [["open", "Back to the queue"]]
+};
+var lastQuestions = "";
+function el(tag, text, cls) { var e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; }
+function showQuestions(list) {
+  var json = JSON.stringify(list);
+  if (json === lastQuestions) return;
+  lastQuestions = json;
+  var ul = $("questions");
+  ul.textContent = "";
+  if (!list.length) { ul.appendChild(el("li", "No questions yet.")); return; }
+  list.forEach(function (g) {
+    var li = el("li");
+    li.appendChild(el("p", g.text + (g.count > 1 ? " (asked by " + g.count + ")" : "") + (g.status !== "open" ? " [" + g.status + "]" : "")));
+    if (g.variants.length) li.appendChild(el("p", "Also asked as: " + g.variants.join(" / ")));
+    ACTIONS[g.status].forEach(function (a) {
+      var b = el("button", a[1], "secondary");
+      b.type = "button";
+      b.onclick = function () {
+        post("/api/questions/" + g.id + "/status", { status: a[0] })
+          .then(function (r) { return r.json(); }).then(showQuestions, function (e) { say(e.message); });
+      };
+      li.appendChild(b);
+    });
+    ul.appendChild(li);
+  });
+}
+function refreshQuestions() {
+  fetch("/api/questions", { headers: { "x-presenter-key": $("key").value } }).then(function (r) {
+    if (r.status === 401) { lastQuestions = ""; $("questions").innerHTML = "<li>Enter the presenter key to see questions.</li>"; return; }
+    return r.json().then(showQuestions);
+  }).catch(function () {});
+}
+refreshQuestions();
+setInterval(refreshQuestions, 5000);
+$("key").onchange = refreshQuestions;
 </script>
 </body>
 </html>

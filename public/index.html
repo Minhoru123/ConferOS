@@ -213,6 +213,13 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2
           <div class="answer" id="answer" aria-live="polite">
             <p class="note">Answers come only from what has been said on stage so far, with a link to the line.</p>
           </div>
+          <form class="ask" id="speakerForm" aria-labelledby="sq-h">
+            <h3 class="sub" id="sq-h" style="flex-basis:100%">Question for the speaker</h3>
+            <label for="sq" style="position:absolute;left:-999px">Your question for the speaker</label>
+            <input id="sq" type="text" maxlength="500" placeholder="Only the moderator sees it" autocomplete="off">
+            <button class="btn" type="submit">Send</button>
+            <p class="note" id="sqStatus" role="status" style="flex-basis:100%"></p>
+          </form>
         </div>
 
         <div class="tabpanel" role="tabpanel" id="p-rooms" aria-labelledby="tab-rooms" hidden>
@@ -349,6 +356,19 @@ function ask(q) {
 }
 document.getElementById("askForm").onsubmit = function (e) { e.preventDefault(); var v = document.getElementById("q").value.trim(); if (v) ask(v); };
 Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (c) { c.onclick = function () { document.getElementById("q").value = c.textContent; ask(c.textContent); }; });
+
+/* Questions for the speaker: only the moderator sees them, and nothing about the sender is kept */
+document.getElementById("speakerForm").onsubmit = function (e) {
+  e.preventDefault();
+  var input = document.getElementById("sq"), out = document.getElementById("sqStatus"), v = input.value.trim();
+  if (!v) return;
+  fetch("/api/questions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: v }) })
+    .then(function (r) {
+      if (r.status === 429) out.textContent = "Too many questions in a minute. Try again shortly.";
+      else if (!r.ok) out.textContent = "That question could not be sent.";
+      else { input.value = ""; out.textContent = "Sent to the moderator. Nobody sees who asked."; }
+    }, function () { out.textContent = "Can't reach the server. Try again."; });
+};
 
 /* Tabs */
 var tabs = [document.getElementById("tab-ask"), document.getElementById("tab-rooms")];

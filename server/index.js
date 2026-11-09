@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { addLine, allLines, events } from "./transcript.js";
 import { startReplay } from "./replay.js";
 import { pace } from "./pacing.js";
+import { addQuestion, groups, setStatus, shownQuestion, STATUSES } from "./questions.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 const PRESENTER_KEY = process.env.PRESENTER_KEY || "";
@@ -55,6 +56,35 @@ app.post("/api/lines", presenterOnly, (req, res) => {
 
 // Speaker screen polls this every few seconds.
 app.get("/api/pace", (req, res) => res.json(pace()));
+
+// At most `max` requests a minute per client address.
+const recent = new Map();
+function rateLimited(key, max) {
+  const now = Date.now();
+  const hits = (recent.get(key) || []).filter((t) => t > now - 60000);
+  const over = hits.length >= max;
+  if (!over) hits.push(now);
+  recent.set(key, hits);
+  return over;
+}
+
+// Questions for the speaker: only the moderator sees them, and nothing about the sender is kept.
+app.post("/api/questions", (req, res) => {
+  const text = typeof req.body?.question === "string" ? req.body.question.trim() : "";
+  if (!text || text.length > 500) return res.status(400).json({ error: "question_length" });
+  if (rateLimited(req.ip, 6)) return res.status(429).json({ error: "rate_limited" });
+  addQuestion(text);
+  res.status(201).end();
+});
+app.get("/api/questions", presenterOnly, (req, res) => res.json(groups()));
+app.post("/api/questions/:id/status", presenterOnly, (req, res) => {
+  const status = req.body?.status;
+  if (!STATUSES.includes(status)) return res.status(400).json({ error: `status must be one of ${STATUSES.join(", ")}` });
+  if (!setStatus(Number(req.params.id), status)) return res.status(404).json({ error: "No such question" });
+  res.json(groups());
+});
+// The question on the speaker screen, if any. Public, since it is meant to be seen.
+app.get("/api/questions/shown", (req, res) => res.json(shownQuestion()));
 
 app.post("/api/replay", presenterOnly, (req, res) => {
   startReplay(REPLAY_MS);
