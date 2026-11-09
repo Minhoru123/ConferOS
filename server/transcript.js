@@ -18,10 +18,13 @@ export function allLines() {
 }
 
 // `t` is the event-local time shown next to the line (HH:MM); replayed lines bring their own.
-export function addLine({ who = "Speaker", en, es, gist, t }) {
+// `source` is "mic" or "typed" for presenter lines; `lagMs` is how late a mic caption was.
+export function addLine({ who = "Speaker", en, es, gist, t, source, lagMs }) {
   const line = { id: lines.length + 1, t: t || clock.format(new Date()), at: Date.now(), who, en };
   if (es) line.es = es;
   if (gist) line.gist = gist;
+  if (source) line.source = source;
+  if (Number.isFinite(lagMs)) line.lagMs = lagMs;
   lines.push(line);
   events.emit("line", line);
   return line;

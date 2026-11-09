@@ -19,7 +19,7 @@
 </head>
 <body>
 <h1>Presenter</h1>
-<p>Each sentence you finish speaking goes to the live transcript. The microphone works in Edge or Chrome, on localhost or over HTTPS.</p>
+<p>Each sentence you finish speaking goes to the live transcript. The microphone works in Edge or Chrome, on localhost or over HTTPS. Put the <a href="/speaker.html">speaker screen</a> where the speaker can see it.</p>
 
 <label for="key">Presenter key</label>
 <input id="key" type="password" autocomplete="off">
@@ -51,13 +51,15 @@ function post(path, body) {
     if (!r.ok) throw new Error("The server refused it (" + r.status + ").");
   });
 }
-function send(text) {
-  return post("/api/lines", { text: text, who: $("who").value })
+function send(text, source, lagMs) {
+  return post("/api/lines", { text: text, who: $("who").value, source: source, lagMs: lagMs })
     .then(function () { say("Sent: " + text); }, function (e) { say(e.message); });
 }
 
-/* Browser speech recognition: interim words show here, finished sentences are sent */
-var Rec = window.SpeechRecognition || window.webkitSpeechRecognition, rec = null, listening = false;
+/* Browser speech recognition: interim words show here, finished sentences are sent.
+   The last interim update is about when the speaker stopped, so the time from it to the final
+   result is how late the caption is (the speaker screen warns when that runs over 6 s). */
+var Rec = window.SpeechRecognition || window.webkitSpeechRecognition, rec = null, listening = false, lastHeardAt = 0;
 function showMic() {
   $("mic").textContent = listening ? "Stop microphone" : "Start microphone";
   $("mic").setAttribute("aria-pressed", String(listening));
@@ -71,8 +73,11 @@ $("mic").onclick = function () {
     var interim = "";
     for (var i = e.resultIndex; i < e.results.length; i++) {
       var r = e.results[i];
-      if (r.isFinal) { var t = r[0].transcript.trim(); if (t) send(t); }
-      else interim += r[0].transcript;
+      if (r.isFinal) {
+        var t = r[0].transcript.trim();
+        if (t) send(t, "mic", lastHeardAt ? Date.now() - lastHeardAt : 0);
+        lastHeardAt = 0;
+      } else { interim += r[0].transcript; lastHeardAt = Date.now(); }
     }
     $("interim").textContent = interim;
   };
@@ -87,7 +92,7 @@ $("mic").onclick = function () {
 $("typeForm").onsubmit = function (e) {
   e.preventDefault();
   var t = $("text").value.trim();
-  if (t) send(t).then(function () { $("text").value = ""; });
+  if (t) send(t, "typed").then(function () { $("text").value = ""; });
 };
 $("replay").onclick = function () {
   post("/api/replay").then(function () { say("Demo script restarted."); }, function (e) { say(e.message); });

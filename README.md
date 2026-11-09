@@ -18,6 +18,7 @@ npm start
 
 - Attendees: http://localhost:3000
 - Presenter (microphone or typed lines, restart the demo): http://localhost:3000/presenter.html
+- Speaker screen, for a phone or monitor facing the speaker: http://localhost:3000/speaker.html. It says "Slow down a little" when the speaker goes over 170 words a minute or captions fall more than 6 seconds behind (median of the last 200 captions). Only microphone lines count.
 
 On start, the server replays a short scripted kickoff so there is something to follow without a microphone. The microphone needs Edge or Chrome, and the page must be on localhost or HTTPS.
 
@@ -38,8 +39,15 @@ Put these in the environment or in a `.env` file.
 | Method and path | What it does |
 | --- | --- |
 | `GET /api/stream` | Server-Sent Events. `snapshot` carries the whole transcript on connect and after a restart; `line` carries each new line. |
-| `POST /api/lines` | `{ "text": "...", "who": "Speaker" }` adds a line. Needs the `x-presenter-key` header when a key is set. |
+| `POST /api/lines` | `{ "text": "...", "who": "Speaker", "source": "mic" or "typed", "lagMs": 800 }` adds a line. Needs the `x-presenter-key` header when a key is set. |
+| `GET /api/pace` | `{ live, wordsPerMinute, behindMs, tooFast, behind, fastAbove }` for the speaker screen. |
 | `POST /api/replay` | Clears the transcript and restarts the scripted kickoff. Needs the presenter key when one is set. |
+
+### Tests
+
+```bash
+npm test
+```
 
 ## Credits and AI disclosure
 

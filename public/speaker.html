@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Backchannel speaker screen</title>
+<style>
+  /* Meant for a phone or monitor facing the speaker: few words, very large, readable at a glance */
+  :root { --bg: #0D1319; --fg: #E8EEF3; --muted: #A8B5C2; --warn-bg: #FFE9A8; --warn-fg: #15202B; }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; gap: 24px; padding: 24px; box-sizing: border-box; background: var(--bg); color: var(--fg); font: 20px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .pace { margin: 0; padding: 24px; border-radius: 16px; background: var(--warn-bg); color: var(--warn-fg); font-size: clamp(1.6rem, 5vw, 3rem); font-weight: 700; }
+  .pace[hidden] { display: none; }
+  .stats { margin: 0; color: var(--muted); font-size: clamp(1rem, 3vw, 1.5rem); }
+</style>
+</head>
+<body>
+<p id="pace" class="pace" hidden aria-live="assertive"></p>
+<p id="stats" class="stats">Waiting for the speaker to start.</p>
+<script>
+/* Polls like TalkLens's speaker screen; texts are TalkLens's own */
+function show() {
+  fetch("/api/pace").then(function (r) { return r.json(); }).then(function (p) {
+    var el = document.getElementById("pace"), msg = "";
+    if (p.live && p.behind) msg = "Slow down a little: captions are " + Math.round(p.behindMs / 1000) + " s behind you.";
+    else if (p.live && p.tooFast) msg = "Slow down a little: about " + p.wordsPerMinute + " words a minute. Under " + p.fastAbove + " is easier to follow and to translate.";
+    if (el.textContent !== msg) el.textContent = msg; /* only touch it on change, so screen readers don't repeat it */
+    el.hidden = !msg;
+    document.getElementById("stats").textContent = !p.live ? "Waiting for the speaker to start."
+      : (p.wordsPerMinute ? p.wordsPerMinute + " words a minute" : "Measuring pace") + " · captions " + (p.behindMs / 1000).toFixed(1) + " s behind";
+  }).catch(function () { document.getElementById("stats").textContent = "Can't reach the server. Retrying."; });
+}
+show();
+setInterval(show, 5000);
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@ import express from "express";
 import { fileURLToPath } from "node:url";
 import { addLine, allLines, events } from "./transcript.js";
 import { startReplay } from "./replay.js";
+import { pace } from "./pacing.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 const PRESENTER_KEY = process.env.PRESENTER_KEY || "";
@@ -47,8 +48,13 @@ app.post("/api/lines", presenterOnly, (req, res) => {
   const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
   const who = typeof req.body?.who === "string" && req.body.who.trim() ? req.body.who.trim().slice(0, 60) : "Speaker";
   if (!text || text.length > 1000) return res.status(400).json({ error: "text must be 1 to 1000 characters" });
-  res.status(201).json(addLine({ who, en: text }));
+  const source = req.body.source === "mic" ? "mic" : "typed";
+  const lagMs = Number.isFinite(req.body.lagMs) ? Math.min(Math.max(req.body.lagMs, 0), 120000) : undefined;
+  res.status(201).json(addLine({ who, en: text, source, lagMs }));
 });
+
+// Speaker screen polls this every few seconds.
+app.get("/api/pace", (req, res) => res.json(pace()));
 
 app.post("/api/replay", presenterOnly, (req, res) => {
   startReplay(REPLAY_MS);
