@@ -1,3 +1,4 @@
+import { Mic, MicOff, PlayCircle, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import { Button } from "./components/ui/button";
@@ -193,6 +194,7 @@ export function Presenter({ roomId, code }: { roomId: string; code?: string }) {
 
       <div className="flex flex-wrap items-center gap-2">
         <Button aria-pressed={listening} disabled={!supported} onClick={listening ? stop : start}>
+          {listening ? <MicOff size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
           {listening ? "Stop captions" : "Start captions from microphone"}
         </Button>
         <p role="status" className="text-sm text-muted-foreground">
@@ -214,11 +216,11 @@ export function Presenter({ roomId, code }: { roomId: string; code?: string }) {
       >
         <label htmlFor="typed" className="sr-only">Type a caption line</label>
         <input id="typed" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Or type a line" className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3" />
-        <Button type="submit" variant="outline">Send line</Button>
+        <Button type="submit" variant="outline"><Send size={16} aria-hidden="true" />Send line</Button>
       </form>
 
       <Button variant="ghost" className="self-start" onClick={() => api.replay(roomId, key || undefined).catch((e: Error) => setError(e.message))}>
-        Replay sample talk
+        <PlayCircle size={18} aria-hidden="true" /> Replay sample talk
       </Button>
     </div>
   );

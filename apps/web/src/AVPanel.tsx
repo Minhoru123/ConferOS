@@ -1,3 +1,4 @@
+import { ExternalLink, Mic, MicOff, PhoneOff, Video, VideoOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Room } from "./api";
 
@@ -50,21 +51,22 @@ export function AVPanel({ room, organizer, caption, speaker }: { room: Room; org
     else setCamOn(next);
   }
 
-  const pill = "min-h-11 rounded-xl px-4 font-bold";
+  const pill = "inline-flex min-h-11 items-center gap-2 rounded-xl px-4 font-bold";
   if (!stream) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">
-        <div>
+        <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent text-primary"><Video size={22} /></span>
+        <div className="min-w-0 flex-1">
           <p className="font-bold">{organizer ? "Go live on camera" : room.kind === "stage" ? "Main room audio and video" : "Talk face to face"}</p>
           <p className="text-sm text-muted-foreground">{organizer ? "Your camera with live captions on top. Captions keep running for everyone." : "Turn on your camera, or open the room's group call."}</p>
           {error && <p role="alert" className="pt-1 text-sm">{error}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => void start()} className={`${pill} bg-primary text-primary-foreground hover:opacity-90`}>
-            {organizer ? "Start camera" : "Turn on camera"}
+            <Video size={18} aria-hidden="true" /> {organizer ? "Start camera" : "Turn on camera"}
           </button>
-          <a href={callUrl} target="_blank" rel="noreferrer" className={`${pill} inline-flex items-center border border-border bg-card hover:border-primary`}>
-            Open group call
+          <a href={callUrl} target="_blank" rel="noreferrer" className={`${pill} border border-border bg-card hover:border-primary`}>
+            <ExternalLink size={18} aria-hidden="true" /> Open group call
           </a>
         </div>
       </div>
@@ -84,8 +86,8 @@ export function AVPanel({ room, organizer, caption, speaker }: { room: Room; org
         </div>
       )}
       <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center gap-2 bg-gradient-to-t from-black/80 to-transparent p-3">
-        <button onClick={() => toggle("audio")} aria-pressed={micOn} className={`${pill} ${micOn ? "bg-white/15" : "bg-[#c2331f]"} text-white`}>{micOn ? "Mic on" : "Mic off"}</button>
-        <button onClick={() => toggle("video")} aria-pressed={camOn} className={`${pill} ${camOn ? "bg-white/15" : "bg-[#c2331f]"} text-white`}>{camOn ? "Camera on" : "Camera off"}</button>
+        <button onClick={() => toggle("audio")} aria-pressed={micOn} className={`${pill} ${micOn ? "bg-white/15" : "bg-[#c2331f]"} text-white`}>{micOn ? <Mic size={18} aria-hidden="true" /> : <MicOff size={18} aria-hidden="true" />}{micOn ? "Mic on" : "Mic off"}</button>
+        <button onClick={() => toggle("video")} aria-pressed={camOn} className={`${pill} ${camOn ? "bg-white/15" : "bg-[#c2331f]"} text-white`}>{camOn ? <Video size={18} aria-hidden="true" /> : <VideoOff size={18} aria-hidden="true" />}{camOn ? "Camera on" : "Camera off"}</button>
         {cameras.length > 1 && (
           <>
             <label htmlFor="cam" className="sr-only">Camera</label>
@@ -97,8 +99,8 @@ export function AVPanel({ room, organizer, caption, speaker }: { room: Room; org
           </>
         )}
         <span className="flex-1" />
-        <a href={callUrl} target="_blank" rel="noreferrer" className={`${pill} inline-flex items-center bg-white/15 text-white`}>Group call</a>
-        <button onClick={stop} className={`${pill} bg-[#c2331f] text-white`}>{organizer ? "End" : "Leave"}</button>
+        <a href={callUrl} target="_blank" rel="noreferrer" className={`${pill} bg-white/15 text-white`}><ExternalLink size={18} aria-hidden="true" />Group call</a>
+        <button onClick={stop} className={`${pill} bg-[#c2331f] text-white`}><PhoneOff size={18} aria-hidden="true" />{organizer ? "End" : "Leave"}</button>
       </div>
     </section>
   );

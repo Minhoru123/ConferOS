@@ -1,30 +1,76 @@
 @import "tailwindcss";
 
-/* Theme tokens (shadcn-style). Light by default, dark follows the system. Check contrast before changing colors. */
-:root {
+/* Theme tokens. Light is the default; the theme switch sets data-theme="dark" on the app wrapper.
+   Text and accent pairs are chosen for WCAG AA contrast in both themes. */
+:root,
+[data-theme="light"] {
   --background: #f4f6fb;
   --foreground: #0f1b2d;
   --card: #ffffff;
-  --muted: #ebeff8;
+  --muted: #edf1f8;
   --muted-foreground: #4b5a6f;
   --border: #d6ddea;
   --primary: #2f3fd6;
   --primary-foreground: #ffffff;
   --accent: #e3e7ff;
   --ring: #b45309;
+  --live: #c2331f;
+  --sun: #ffd84d;
+  --tint-stage: #e3e7ff;
+  --tint-focus: #dff5ec;
+  --tint-team: #ffeedd;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0f18;
-    --foreground: #e8edf6;
-    --card: #111827;
-    --muted: #182134;
-    --muted-foreground: #a3b0c5;
-    --border: #26324a;
-    --primary: #8e9bff;
-    --primary-foreground: #0a0f18;
-    --accent: #1b2350;
-    --ring: #ffb454;
+[data-theme="dark"] {
+  --background: #0a0f18;
+  --foreground: #e8edf6;
+  --card: #111827;
+  --muted: #182134;
+  --muted-foreground: #a3b0c5;
+  --border: #26324a;
+  --primary: #8e9bff;
+  --primary-foreground: #0a0f18;
+  --accent: #1b2350;
+  --ring: #ffb454;
+  --live: #ff8f7c;
+  --sun: #ffd84d;
+  --tint-stage: #1b2350;
+  --tint-focus: #123327;
+  --tint-team: #3a2415;
+  color-scheme: dark;
+}
+/* Stronger contrast: chosen in Display, or followed from the system setting. */
+[data-contrast="high"] {
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --muted: #ffffff;
+  --muted-foreground: #000000;
+  --border: #000000;
+  --primary: #14208f;
+  --primary-foreground: #ffffff;
+  --accent: #ffffff;
+  --live: #8a0000;
+}
+[data-theme="dark"][data-contrast="high"] {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #000000;
+  --muted: #000000;
+  --muted-foreground: #ffffff;
+  --border: #ffffff;
+  --primary: #b3bcff;
+  --primary-foreground: #000000;
+  --accent: #000000;
+  --live: #ff9c8f;
+}
+@media (prefers-contrast: more) {
+  [data-theme="light"] {
+    --muted-foreground: #000000;
+    --border: #000000;
+  }
+  [data-theme="dark"] {
+    --muted-foreground: #ffffff;
+    --border: #ffffff;
   }
 }
 
@@ -39,9 +85,15 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-accent: var(--accent);
   --color-ring: var(--ring);
+  --color-live: var(--live);
+  --color-sun: var(--sun);
+  --color-tint-stage: var(--tint-stage);
+  --color-tint-focus: var(--tint-focus);
+  --color-tint-team: var(--tint-team);
 }
 
 body {
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
   font-family: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -50,71 +102,34 @@ body {
   outline: 3px solid var(--ring);
   outline-offset: 2px;
 }
+.font-display {
+  font-family: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+.font-mono {
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+.dots {
+  background-image: radial-gradient(color-mix(in srgb, var(--muted-foreground) 22%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+@keyframes live-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+.live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  background: currentColor;
+  display: inline-block;
+  animation: live-pulse 1.8s ease-in-out infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;
     transition: none !important;
     animation: none !important;
-  }
-}
-
-/* High contrast, chosen with the "High contrast" button. It sits on a wrapper, so it layers over light or dark. */
-[data-contrast="high"] {
-  --background: #ffffff;
-  --foreground: #000000;
-  --card: #ffffff;
-  --muted: #ffffff;
-  --muted-foreground: #000000;
-  --border: #000000;
-  --primary: #14208f;
-  --primary-foreground: #ffffff;
-  --accent: #ffffff;
-  --ring: #8a3b00;
-}
-@media (prefers-color-scheme: dark) {
-  [data-contrast="high"] {
-    --background: #000000;
-    --foreground: #ffffff;
-    --card: #000000;
-    --muted: #000000;
-    --muted-foreground: #ffffff;
-    --border: #ffffff;
-    --primary: #b3bcff;
-    --primary-foreground: #000000;
-    --accent: #000000;
-    --ring: #ffc474;
-  }
-}
-
-.font-display { font-family: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif; letter-spacing: -0.01em; }
-.font-mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
-@keyframes live-pulse { 50% { opacity: 0.3; } }
-.live-dot { width: 9px; height: 9px; border-radius: 9999px; background: currentColor; display: inline-block; animation: live-pulse 1.8s ease-in-out infinite; }
-
-/* Follow the system's "increase contrast" setting automatically. */
-@media (prefers-contrast: more) {
-  :root {
-    --background: #ffffff;
-    --foreground: #000000;
-    --card: #ffffff;
-    --muted: #ffffff;
-    --muted-foreground: #000000;
-    --border: #000000;
-    --primary: #14208f;
-    --primary-foreground: #ffffff;
-    --accent: #ffffff;
-  }
-}
-@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
-  :root {
-    --background: #000000;
-    --foreground: #ffffff;
-    --card: #000000;
-    --muted: #000000;
-    --muted-foreground: #ffffff;
-    --border: #ffffff;
-    --primary: #b3bcff;
-    --primary-foreground: #000000;
-    --accent: #000000;
   }
 }

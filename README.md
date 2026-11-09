@@ -16,6 +16,8 @@ Architecture board: https://www.figma.com/board/c9XDkwm2grU3XOgref2hE4/ConferOS
 - **See and hear the room.** Turn on your camera with live captions on top, or open the room's group call.
 - **Meet people.** Focus groups are open rooms around a topic. Team zones are private rooms you join with a code, for people with aligned interests to build together.
 - **Catch up without stress.** Pause the captions without losing your place, jump back to live, search what was said, or switch to captions only.
+- **Know what is next.** A Now and Next strip, today's agenda, and a countdown to the submission deadline, tailored to the Cloud Native Hackathon.
+- **Light or dark.** Light by default, dark with one click.
 - **Organizer view.** Caption a room from the microphone, type announcements, and go live on camera. Participant view hides all of that.
 
 Accessibility is built in rather than switched on: the layout follows the system's contrast and reduced-motion settings, works with a keyboard and screen readers, keeps touch targets large, and has a small Display menu for text size, contrast and a captions-only layout.

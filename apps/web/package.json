@@ -12,6 +12,7 @@
     "@radix-ui/react-slot": "latest",
     "class-variance-authority": "latest",
     "clsx": "latest",
+    "lucide-react": "^1.70.0",
     "react": "latest",
     "react-dom": "latest",
     "tailwind-merge": "latest"
