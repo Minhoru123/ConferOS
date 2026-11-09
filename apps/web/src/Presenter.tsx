@@ -55,6 +55,7 @@ export function Presenter({ roomId }: { roomId: string }) {
 
   const wantRef = useRef(false);
   const recRef = useRef<Recognizer | null>(null);
+  const flushRef = useRef<(() => void) | null>(null);
   const roomRef = useRef(roomId);
   const keyRef = useRef(key);
   const speakerRef = useRef(speaker);
@@ -75,6 +76,9 @@ export function Presenter({ roomId }: { roomId: string }) {
 
   function stop() {
     wantRef.current = false;
+    // Send whatever was said before stopping, to the room it was said in.
+    flushRef.current?.();
+    flushRef.current = null;
     const rec = recRef.current;
     if (rec) {
       // Drop any final result the browser still delivers after stop, so it cannot land in another room.
@@ -96,19 +100,39 @@ export function Presenter({ roomId }: { roomId: string }) {
     rec.lang = "en-US";
     const room = roomRef.current;
     let lastInterim = 0;
+    // Browsers finalize speech at every short pause, so join the pieces into one line per sentence or pause.
+    const PAUSE_MS = 1400;
+    let buffer = "";
+    let bufferLag = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = () => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      const text = buffer.trim();
+      buffer = "";
+      if (text) send(text.charAt(0).toUpperCase() + text.slice(1), "mic", bufferLag, room);
+    };
+    const later = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(flush, PAUSE_MS);
+    };
+    flushRef.current = flush;
     rec.onresult = (e) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i]!;
         if (!r.isFinal) {
           lastInterim = Date.now();
+          if (buffer) later(); // still talking: keep the line open
           continue;
         }
         const text = r[0].transcript.trim();
         if (!text) continue;
         // Lag = how long after the last partial caption the final text arrived.
-        const lag = lastInterim ? Math.min(120000, Math.max(0, Date.now() - lastInterim)) : 0;
+        bufferLag = Math.round(lastInterim ? Math.min(120000, Math.max(0, Date.now() - lastInterim)) : 0);
         lastInterim = 0;
-        send(text, "mic", Math.round(lag), room);
+        buffer += (buffer ? " " : "") + text;
+        if (/[.?!]$/.test(text) || buffer.length > 160) flush();
+        else later();
       }
     };
     rec.onerror = (e) => {
