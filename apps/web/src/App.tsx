@@ -16,6 +16,7 @@ export function App() {
   const [announce, setAnnounce] = useState(false);
   const [scale, setScale] = useState(1);
   const [contrast, setContrast] = useState(false);
+  const [calm, setCalm] = useState(false);
   const [paused, setPaused] = useState(false);
   const [frozen, setFrozen] = useState(0);
   const [term, setTerm] = useState("");
@@ -54,6 +55,8 @@ export function App() {
   const upToNow = paused ? segments.slice(0, frozen) : segments;
   const visible = term ? upToNow.filter((s) => s.text.toLowerCase().includes(term.toLowerCase())) : upToNow;
   const latest = upToNow.at(-1);
+  // Calm mode shows only the last few lines, larger, so the screen stays quiet.
+  const shownLines = calm && !term ? visible.slice(-3) : visible;
   const missed = paused ? segments.length - frozen : 0;
 
   useEffect(() => {
@@ -64,8 +67,9 @@ export function App() {
 
   return (
     <div data-contrast={contrast ? "high" : "normal"} style={{ ["--scale" as string]: scale }} className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto grid max-w-6xl gap-4 p-4 md:grid-cols-[240px_1fr]">
+      <div className={`mx-auto grid max-w-6xl gap-4 p-4 ${calm ? "max-w-4xl" : "md:grid-cols-[240px_1fr]"}`}>
         <a href="#transcript" className="sr-only focus:not-sr-only">Skip to transcript</a>
+        {!calm && (
         <nav aria-label="Rooms" className="rounded-2xl border border-border bg-card p-3">
           <h1 className="px-2 pb-2 text-xl font-bold">Backchannel</h1>
           <ul className="flex flex-col gap-1">
@@ -82,6 +86,7 @@ export function App() {
             ))}
           </ul>
         </nav>
+        )}
 
         <main className="flex min-w-0 flex-col gap-4">
           <header className="flex flex-wrap items-center justify-between gap-2">
@@ -93,13 +98,14 @@ export function App() {
               <Button variant="outline" aria-label="Make text smaller" onClick={() => setScale((s) => Math.max(0.85, +(s - 0.15).toFixed(2)))}>A−</Button>
               <Button variant="outline" aria-label="Make text larger" onClick={() => setScale((s) => Math.min(1.6, +(s + 0.15).toFixed(2)))}>A+</Button>
               <Button variant="outline" aria-pressed={contrast} onClick={() => setContrast((c) => !c)}>High contrast</Button>
+              <Button variant="outline" aria-pressed={calm} onClick={() => setCalm((c) => !c)}>Calm mode</Button>
               <Button variant="outline" aria-pressed={announce} onClick={() => setAnnounce((a) => !a)}>Read new lines aloud</Button>
             </div>
           </header>
 
           {error && <p role="alert" className="rounded-lg border border-border bg-muted p-3">Something went wrong: {error}</p>}
 
-          <div aria-hidden="true" className="rounded-2xl bg-[#080c14] px-4 py-3 text-white" style={{ fontSize: "calc(1.25rem * var(--scale))", lineHeight: 1.4 }}>
+          <div aria-hidden="true" className="rounded-2xl bg-[#080c14] px-4 py-3 text-white" style={{ fontSize: `calc(${calm ? 1.75 : 1.25}rem * var(--scale))`, lineHeight: 1.4 }}>
             <span className="block font-mono text-[0.7rem] uppercase tracking-widest text-[#ffd84d]">{latest ? latest.speaker : "Live captions"}</span>
             {latest ? latest.text : "Captions appear here as soon as someone speaks."}
           </div>
@@ -127,8 +133,8 @@ export function App() {
             </div>
             <div id="transcript" role="log" aria-live={announce ? "polite" : "off"} aria-label="Live transcript" tabIndex={0} className="max-h-[50vh] overflow-y-auto p-4">
               {visible.length === 0 && <p className="text-muted-foreground">{term ? `No lines match "${term}".` : "The transcript starts when someone speaks."}</p>}
-              {visible.map((s) => (
-                <p key={s.id} className="border-t border-border py-3 first:border-t-0" style={{ fontSize: "calc(1.05rem * var(--scale))", lineHeight: 1.5 }}>
+              {shownLines.map((s) => (
+                <p key={s.id} className="border-t border-border py-3 first:border-t-0" style={{ fontSize: `calc(${calm ? 1.4 : 1.05}rem * var(--scale))`, lineHeight: 1.55 }}>
                   <span className="block font-mono text-xs uppercase tracking-wide text-muted-foreground">
                     {clock(s.ts)} · {s.speaker}
                   </span>
@@ -139,6 +145,8 @@ export function App() {
             </div>
           </section>
 
+          {!calm && (
+          <>
           <section aria-labelledby="a-h" className="rounded-2xl border border-border bg-card p-4">
             <h3 id="a-h" className="pb-2 font-bold">Ask about this room</h3>
             <form
@@ -168,6 +176,8 @@ export function App() {
             <summary className="min-h-11 cursor-pointer px-4 py-3 font-bold">Presenter tools</summary>
             <Presenter roomId={roomId} />
           </details>
+          </>
+          )}
         </main>
       </div>
     </div>
