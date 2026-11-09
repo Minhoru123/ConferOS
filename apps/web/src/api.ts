@@ -63,6 +63,12 @@ export interface RoomStats {
   telemetry: boolean;
 }
 
+export interface SignItem {
+  tokens: { word: string; hasSign: boolean }[];
+  sigml: string;
+  byModel: boolean;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -105,6 +111,12 @@ export const api = {
     es.addEventListener("message", (e) => on.message(JSON.parse((e as MessageEvent<string>).data) as ChatMessage));
     es.addEventListener("reset", () => on.reset?.());
     es.addEventListener("signal", (e) => on.signal?.(JSON.parse((e as MessageEvent<string>).data) as Signal));
+    return () => es.close();
+  },
+  /** Staying connected here is what keeps signing on for the room. */
+  signs: (id: string, code: string | undefined, onSigns: (item: SignItem) => void) => {
+    const es = new EventSource(`/api/rooms/${id}/signs${withCode(code)}`);
+    es.addEventListener("signs", (e) => onSigns(JSON.parse((e as MessageEvent<string>).data) as SignItem));
     return () => es.close();
   },
 };

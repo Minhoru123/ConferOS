@@ -4,6 +4,7 @@ import {
   Captions,
   Coffee,
   Hammer,
+  Hand,
   Hash,
   KeyRound,
   Languages,
@@ -40,6 +41,7 @@ import { SampleSpeaker } from "./SampleSpeaker";
 import { SAMPLE_VOICE } from "./sampleVoice";
 import { TagsContext, TrackTag } from "./tags";
 import { Presenter } from "./Presenter";
+import { SignAvatar } from "./components/SignAvatar";
 import { signals } from "./live";
 import { LANGUAGES } from "./Translate";
 import { Button } from "./components/ui/button";
@@ -96,6 +98,8 @@ export function App() {
   const [scale, setScale] = useState(1);
   const [contrast, setContrast] = useState(false);
   const [calm, setCalm] = useState(false);
+  const [signsOn, setSignsOn] = useState(false);
+  const [signsStarted, setSignsStarted] = useState(false);
   const [paused, setPaused] = useState(false);
   const [frozen, setFrozen] = useState(0);
   const [term, setTerm] = useState("");
@@ -552,6 +556,16 @@ export function App() {
                   {paused ? <Play size={18} aria-hidden="true" /> : <Pause size={18} aria-hidden="true" />}
                   {paused ? (missed > 0 ? `Jump to live (${missed} new)` : "Resume") : "Pause"}
                 </button>
+                <button
+                  aria-pressed={signsOn}
+                  onClick={() => {
+                    setSignsOn((on) => !on);
+                    setSignsStarted(true);
+                  }}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white/10 px-4 font-bold hover:bg-white/20 aria-pressed:bg-[#ffd84d] aria-pressed:text-[#0f1b2d]"
+                >
+                  <Hand size={18} aria-hidden="true" /> Sign language avatar
+                </button>
                 {!calm && (
                   <button onClick={() => setTab("chat")} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white/10 px-4 font-bold hover:bg-white/20">
                     <Bot size={18} aria-hidden="true" /> Ask the AI about this talk
@@ -563,6 +577,8 @@ export function App() {
           </div>
 
           {view === "organizer" && !calm && <Insights roomId={roomId} code={code} />}
+
+          {signsStarted && <SignAvatar roomId={roomId} code={code} on={signsOn} />}
 
           {view === "organizer" && !calm && (
             <section aria-labelledby="org-h" className="rounded-2xl border border-border bg-card">
