@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ConferOS live test</title>
+<style>
+  body { font: 18px/1.5 system-ui, sans-serif; margin: 0 auto; padding: 16px; max-width: 960px; }
+  button, input { font: inherit; min-height: 44px; padding: 8px 14px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; margin-top: 16px; }
+  #captions { height: 60vh; overflow-y: auto; border: 1px solid #889; border-radius: 8px; padding: 8px 12px; }
+  #captions p { margin: 8px 0; }
+  #captions .partial { opacity: .65; }
+  time { font: 13px monospace; margin-right: 8px; }
+  .CWASAAvatar { width: 320px; height: 320px; }
+  .warning { font-size: 14px; }
+  .chip { display: inline-block; padding: 0 6px; margin: 2px; border: 1px solid currentColor; border-radius: 4px; font-size: 15px; }
+  .chip.missing { text-decoration: line-through; opacity: .6; }
+  @media (max-width: 760px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<h1>ConferOS live test</h1>
+<div class="bar">
+  <label for="key">Speaker key</label>
+  <input id="key" type="password" autocomplete="off">
+  <button id="mic">Start microphone</button>
+  <button id="signs" aria-pressed="false">Sign language avatar</button>
+  <span id="status" role="status"></span>
+</div>
+<div class="stage">
+  <div id="captions" role="log" aria-label="Live captions" tabindex="0"></div>
+  <aside id="avatar" hidden>
+    <div class="CWASAAvatar av0"></div>
+    <p class="warning"><strong>Experimental.</strong> Automatic, with a mixed sign vocabulary that is not ASL and has not been reviewed by anyone who signs. Captions are the reliable source.</p>
+    <div id="tokens"></div>
+    <p id="skipped" class="warning" hidden>Some signs were skipped to keep up with the speaker.</p>
+  </aside>
+</div>
+<script src="live-client.js"></script>
+<script src="sign-avatar.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const status = (text) => { $("status").textContent = text; };
+  const rows = new Map();
+
+  function show(line) {
+    let row = rows.get(line.id);
+    if (!row) {
+      row = document.createElement("p");
+      rows.set(line.id, row);
+      $("captions").append(row);
+    }
+    const time = document.createElement("time");
+    time.textContent = line.t;
+    row.replaceChildren(time, line.text);
+    row.className = line.final ? "" : "partial";
+    $("captions").scrollTop = $("captions").scrollHeight;
+  }
+
+  function showTokens(item) {
+    $("tokens").replaceChildren(...item.tokens.map((token) => {
+      const chip = document.createElement("span");
+      chip.className = token.hasSign ? "chip" : "chip missing";
+      chip.textContent = token.word.replaceAll("_", " ");
+      return chip;
+    }));
+  }
+
+  let player = null;
+  const live = ConferLive.connect({
+    onStatus: status,
+    onHistory: (lines) => lines.forEach(show),
+    onCaption: show,
+    onSigns: (item) => player?.say(item),
+  });
+
+  let microphone = null;
+  $("mic").onclick = async () => {
+    if (microphone) { microphone.stop(); return; }
+    try {
+      microphone = await ConferLive.startMicrophone({
+        key: $("key").value,
+        onStop: (reason) => {
+          microphone = null;
+          $("mic").textContent = "Start microphone";
+          status(reason ? `Microphone stopped: ${reason}` : "Microphone stopped");
+        },
+      });
+      $("mic").textContent = "Stop microphone";
+      status("Listening");
+    } catch (error) {
+      status(`Microphone unavailable: ${error.name}`);
+    }
+  };
+
+  $("signs").onclick = async () => {
+    const on = $("signs").getAttribute("aria-pressed") !== "true";
+    $("signs").setAttribute("aria-pressed", String(on));
+    $("avatar").hidden = !on;
+    live.setSigns(on);
+    if (!on || player) return;
+    status("Loading avatar");
+    try {
+      await SignAvatar.load();
+      player = SignAvatar.player({ onSay: showTokens, onSkip: () => { $("skipped").hidden = false; } });
+      status("Avatar ready");
+    } catch {
+      status("The avatar could not load. It needs internet.");
+    }
+  };
+</script>
+</body>
+</html>
