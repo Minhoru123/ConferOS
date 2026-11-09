@@ -121,3 +121,7 @@ Traces show up under the service `backchannel-api`. Never commit the token.
 - Microphone captions need Chrome or Edge on localhost or HTTPS, and the audio goes to the browser's speech service.
 - `backchannel.caption.lag` is measured in the presenter's browser from the last partial caption to the final text. It is not the full time to every viewer's screen.
 - Ask returns the best matching line. Generated answers, translation, summaries and video rooms are planned, not built.
+
+## AI assistance
+
+As the hackathon rules ask, we disclose that this project was built with help from AI coding assistants. Claude Code helped plan the project and write code and documentation, and Gitar reviewed every pull request. The team reviewed and tested the changes.
