@@ -32,6 +32,10 @@ import { useEffect, useRef, useState } from "react";
 import { AGENDA, countdown, eventMinutes, label, nowAndNext, type AgendaItem } from "./agenda";
 import { api, type ChatMessage, type Room, type Segment } from "./api";
 import { AVPanel } from "./AVPanel";
+import { DemoDock, type View } from "./DemoDock";
+import { Insights } from "./Insights";
+import { SampleSpeaker } from "./SampleSpeaker";
+import { TagsContext, TrackTag } from "./tags";
 import { Presenter } from "./Presenter";
 import { signals } from "./live";
 import { LANGUAGES } from "./Translate";
@@ -55,7 +59,6 @@ const AGENDA_ICON: Record<AgendaItem["icon"], LucideIcon> = {
   send: Send,
 };
 type Tab = "transcript" | "chat" | "agenda";
-type View = "participant" | "organizer";
 type Theme = "light" | "dark";
 
 function load<T>(key: string, fallback: T): T {
@@ -107,6 +110,11 @@ export function App() {
   const [roomNote, setRoomNote] = useState("");
   const [minutes, setMinutes] = useState(() => eventMinutes());
   const pendingRef = useRef(new Set<string>());
+  const [tags, setTags] = useState(true);
+  const [voice, setVoice] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [demoNote, setDemoNote] = useState("");
+  const spokenRef = useRef("");
   const endRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -178,6 +186,33 @@ export function App() {
   const previous = upToNow.at(-2);
   const missed = paused ? segments.length - frozen : 0;
   const { now, next } = nowAndNext(minutes);
+
+  // Demo sample speaker: a browser voice reads each new line aloud, in English, like a real speaker would.
+  useEffect(() => {
+    if (!voice || !latest || spokenRef.current === latest.id || !("speechSynthesis" in window)) return;
+    spokenRef.current = latest.id;
+    const u = new SpeechSynthesisUtterance(latest.text);
+    u.lang = "en-US";
+    u.onstart = () => setSpeaking(true);
+    u.onend = () => setSpeaking(false);
+    window.speechSynthesis.speak(u);
+  }, [voice, latest]);
+  function startSample() {
+    spokenRef.current = latest?.id ?? "";
+    setVoice(true);
+    setView("participant");
+    setRoomId("main");
+    api
+      .replay("main", sessionStorage.getItem("presenterKey") ?? undefined, 6500)
+      .then((r) => setDemoNote(`Sample speaker is reading ${r.queued} lines on the Main stage.`))
+      .catch((e: Error) => setDemoNote(`Could not start the sample: ${e.message}`));
+  }
+  function stopSample() {
+    setVoice(false);
+    setSpeaking(false);
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    setDemoNote("");
+  }
   const left = countdown(minutes);
 
   useEffect(() => {
@@ -243,6 +278,7 @@ export function App() {
   const CurrentIcon = room ? RoomIcon(room) : Hash;
 
   return (
+    <TagsContext.Provider value={tags}>
     <div data-theme={theme} data-contrast={contrast ? "high" : "normal"} style={{ ["--scale" as string]: scale }} className="dots min-h-screen bg-background text-foreground">
       <a href="#stage" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground">
         Skip to live captions
@@ -250,7 +286,9 @@ export function App() {
 
       <header className="sticky top-0 z-20 border-b border-border bg-card">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
+          <div className="relative flex items-center gap-3">
+            <TrackTag track="Sonar" label="every change reviewed by Gitar" side="bottom" className="left-0 top-[calc(100%+2px)]" />
+            <TrackTag track="Radar" label="runs on Kubernetes" side="bottom" className="left-[290px] top-[calc(100%+2px)]" />
             <span aria-hidden="true" className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground">
               <Captions size={22} />
             </span>
@@ -260,21 +298,10 @@ export function App() {
             </div>
           </div>
 
-          <div role="group" aria-label="View" className="flex rounded-xl border border-border bg-background p-1">
-            {(["participant", "organizer"] as View[]).map((v) => {
-              const Icon = v === "participant" ? Users : Megaphone;
-              return (
-                <button key={v} aria-pressed={view === v} onClick={() => setView(v)} className="inline-flex min-h-10 items-center gap-2 rounded-lg px-4 font-bold text-muted-foreground aria-pressed:bg-primary aria-pressed:text-primary-foreground">
-                  <Icon size={18} aria-hidden="true" />
-                  {v === "participant" ? "Participant view" : "Organizer view"}
-                </button>
-              );
-            })}
-          </div>
-
           <div className="flex flex-wrap items-center gap-2">
             <span className="relative inline-flex items-center">
               <Languages size={18} aria-hidden="true" className="pointer-events-none absolute left-3 text-muted-foreground" />
+              <TrackTag track="Merge Forward" label="live translation" side="bottom" className="left-0 top-[calc(100%+2px)]" />
               <label htmlFor="lang" className="sr-only">Caption language</label>
               <select id="lang" value={lang} onChange={(e) => chooseLanguage(e.target.value)} className={`${input} pl-9 font-bold`}>
                 {LANGUAGES.map(([v, l]) => (
@@ -335,7 +362,7 @@ export function App() {
 
       <div className={`mx-auto grid gap-4 p-4 ${calm ? "max-w-4xl" : "max-w-[1440px] lg:grid-cols-[270px_minmax(0,1fr)_420px]"}`}>
         {!calm && (
-          <nav aria-label="Rooms" className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-3 lg:self-start">
+          <nav aria-label="Rooms" className="relative flex flex-col gap-4 rounded-2xl border border-border bg-card p-3 lg:self-start">
             {GROUPS.map(([kind, groupLabel, GroupIcon]) => {
               const items = allRooms.filter((r) => r.kind === kind);
               return (
@@ -408,8 +435,14 @@ export function App() {
 
           {error && <p role="alert" className="rounded-xl border border-border bg-muted p-3">Something went wrong: {error}</p>}
 
-          {!calm && room && <AVPanel key={`${room.id}-${view}`} room={room} code={code} organizer={view === "organizer"} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />}
+          {!calm && room && (voice && view === "participant" && room.id === "main" ? (
+            <SampleSpeaker speaking={speaking} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />
+          ) : (
+            <AVPanel key={`${room.id}-${view}`} room={room} code={code} organizer={view === "organizer"} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />
+          ))}
 
+          <div className="relative">
+          <TrackTag track="Merge Forward" label="live captions anyone can read" side="bottom" className="-bottom-10 right-4" />
           <section id="stage" tabIndex={-1} aria-label="Live captions" className="relative overflow-hidden rounded-3xl bg-[#0d1422] text-white shadow-[0_24px_60px_-30px_rgba(15,27,45,0.55)]">
             <div className="flex items-center justify-between gap-2 px-5 pt-4 text-sm text-[#c9d4e6]">
               <span className="inline-flex items-center gap-2 rounded-full bg-black/40 px-3 py-1">
@@ -438,11 +471,14 @@ export function App() {
               </div>
             </div>
           </section>
+          </div>
+
+          {view === "organizer" && !calm && <Insights roomId={roomId} code={code} />}
 
           {view === "organizer" && !calm && (
             <section aria-labelledby="org-h" className="rounded-2xl border border-border bg-card">
               <h2 id="org-h" className="font-display flex items-center gap-2 px-4 pt-4 text-xl font-bold"><Megaphone size={20} aria-hidden="true" /> Organizer tools</h2>
-              <p className="px-4 text-sm text-muted-foreground">Caption the room from your microphone, type an announcement, or replay a sample talk.</p>
+              <p className="px-4 text-sm text-muted-foreground">Caption the room from your microphone, or type an announcement.</p>
               <Presenter roomId={roomId} code={code} />
             </section>
           )}
@@ -487,6 +523,7 @@ export function App() {
 
             <div role="tabpanel" id="panel-transcript" aria-labelledby="tab-transcript" hidden={tab !== "transcript"} className="flex min-h-0 flex-1 flex-col">
               <div className="relative border-b border-border p-3">
+                <TrackTag track="Elasticsearch" label="stores and searches every line" side="bottom" className="right-3 top-[56px]" />
                 <Search size={18} aria-hidden="true" className="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <label htmlFor="search" className="sr-only">Search what was said</label>
                 <input id="search" type="search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search what was said" className={`${input} w-full pl-10`} />
@@ -512,7 +549,8 @@ export function App() {
             </div>
 
             <div role="tabpanel" id="panel-chat" aria-labelledby="tab-chat" hidden={tab !== "chat"} className="flex min-h-0 flex-1 flex-col">
-              <p className="flex items-start gap-2 px-4 pt-3 text-sm text-muted-foreground">
+              <p className="relative flex items-start gap-2 px-4 pt-3 text-sm text-muted-foreground">
+                <TrackTag track="AI + Elasticsearch" label="answers only from the transcript" side="bottom" className="right-3 top-[calc(100%+2px)]" />
                 <Bot size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-primary" />
                 <span>Chat with the room. Start a message with <strong className="text-foreground">@ai</strong> to ask about anything said here. It answers only from the transcript, with the time it was said.</span>
               </p>
@@ -594,6 +632,8 @@ export function App() {
           </aside>
         )}
       </div>
+      <DemoDock view={view} setView={setView} tags={tags} setTags={setTags} sampleOn={voice} onSample={startSample} onStopSample={stopSample} note={demoNote} />
     </div>
+    </TagsContext.Provider>
   );
 }

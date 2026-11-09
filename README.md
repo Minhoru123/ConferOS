@@ -39,6 +39,10 @@ Open http://localhost:8090 in Chrome. The first start takes a minute while Elast
 5. Pick **Español** in the language menu.
 6. Under **Start or join a room**, create a team zone, copy its join code, and join it from another window.
 
+## Demo controls
+
+A small dock in the bottom-left corner, styled like a developer toolbar, holds things that exist only for the demo: switching between Participant and Organizer view, playing a sample talk read aloud by the browser's voice, and showing or hiding tags that point at the part of the screen each hackathon track powers. In production, people sign in with their role and the dock is not there.
+
 ## Hackathon tracks
 
 | Track | How Backchannel uses it today | How it makes Backchannel better next |

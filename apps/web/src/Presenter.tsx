@@ -1,4 +1,4 @@
-import { Mic, MicOff, PlayCircle, Send } from "lucide-react";
+import { Mic, MicOff, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import { Button } from "./components/ui/button";
@@ -219,9 +219,6 @@ export function Presenter({ roomId, code }: { roomId: string; code?: string }) {
         <Button type="submit" variant="outline"><Send size={16} aria-hidden="true" />Send line</Button>
       </form>
 
-      <Button variant="ghost" className="self-start" onClick={() => api.replay(roomId, key || undefined).catch((e: Error) => setError(e.message))}>
-        <PlayCircle size={18} aria-hidden="true" /> Replay sample talk
-      </Button>
     </div>
   );
 }

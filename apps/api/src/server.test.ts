@@ -141,3 +141,13 @@ describe("live broadcast signaling", () => {
     expect(bad.statusCode).toBe(400);
   });
 });
+
+describe("organizer stats", () => {
+  it("counts lines, AI questions and caption lag for a room", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    for (const lagMs of [400, 600, 900]) await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "A", text: "Lunch is at one.", source: "mic", lagMs } });
+    await app.inject({ method: "POST", url: "/api/rooms/main/messages", payload: { author: "Ana", text: "@ai when is lunch?" } });
+    const s = (await app.inject({ url: "/api/rooms/main/stats" })).json();
+    expect(s).toMatchObject({ lines: 3, messages: 2, aiQuestions: 1, lagP50: 600, lagP95: 900 });
+  });
+});

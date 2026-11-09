@@ -47,6 +47,7 @@ const translateBody = z.object({ texts: z.array(z.string().min(1).max(1000)).min
 
 // Translation through MyMemory (free, no key). Results are cached per language and line.
 const translations = new Map<string, string>();
+const translatedBy = new Map<string, number>();
 async function translateOne(text: string, target: string): Promise<string | null> {
   const key = `${target}:${text}`;
   const hit = translations.get(key);
@@ -83,6 +84,12 @@ export interface Deps {
 export async function buildServer({ store, bus = new Bus<Segment>(), chat = new Bus<ChatMessage>(), signals = new Bus<Signal>(), dev = false, presenterKey }: Deps) {
   const key = presenterKey ?? process.env.PRESENTER_KEY ?? "";
   const messages = new Map<string, ChatMessage[]>();
+  const stats = new Map<string, { ai: number; lags: number[] }>();
+  const statsFor = (id: string) => {
+    let s = stats.get(id);
+    if (!s) stats.set(id, (s = { ai: 0, lags: [] }));
+    return s;
+  };
   const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
   await app.register(cors, { origin: true });
 
@@ -161,7 +168,12 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
         const seg = await store.addSegment(req.params.id, input);
         bus.publish(req.params.id, seg);
         linesAdded.add(1, { source: input.source ?? "typed" });
-        if (input.lagMs !== undefined) captionLag.record(input.lagMs, { source: input.source ?? "typed" });
+        if (input.lagMs !== undefined) {
+          captionLag.record(input.lagMs, { source: input.source ?? "typed" });
+          const l = statsFor(req.params.id).lags;
+          l.push(input.lagMs);
+          if (l.length > 200) l.shift();
+        }
         return reply.code(201).send(seg);
       } catch (e) {
         span.setStatus({ code: SpanStatusCode.ERROR, message: String(e) });
@@ -216,10 +228,30 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
     if (AI_PREFIX.test(text)) {
       const question = text.replace(AI_PREFIX, "").trim();
       chatAsks.add(1);
+      statsFor(req.params.id).ai += 1;
       const a = question ? await answer(req.params.id, question) : { answer: "Ask me about anything said in this room, for example: @ai when is lunch?", citations: [] };
       postMessage(req.params.id, { author: "Backchannel AI", text: a.answer, bot: true, citations: a.citations });
     }
     return reply.code(201).send(msg);
+  });
+
+  // Live numbers for the organizer. The same events go to Dash0 as OpenTelemetry metrics and traces.
+  app.get<{ Params: { id: string }; Querystring: { code?: string } }>("/api/rooms/:id/stats", async (req) => {
+    const { id } = req.params;
+    await readable(id, req.query.code);
+    const s = statsFor(id);
+    const sorted = [...s.lags].sort((a, b) => a - b);
+    const pct = (p: number) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]! : null);
+    return {
+      watching: bus.listenerCount(id),
+      lines: (await store.listSegments(id)).length,
+      messages: (messages.get(id) ?? []).length,
+      aiQuestions: s.ai,
+      lagP50: pct(0.5),
+      lagP95: pct(0.95),
+      translations: Object.fromEntries(translatedBy),
+      telemetry: Boolean(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
+    };
   });
 
   // Relays WebRTC signaling inside a room so the organizer's camera and microphone reach every viewer.
@@ -236,6 +268,7 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
     return tracer.startActiveSpan("translate", async (span) => {
       try {
         span.setAttributes({ "translate.target": target, "translate.lines": texts.length });
+        translatedBy.set(target, (translatedBy.get(target) ?? 0) + texts.length);
         const out: (string | null)[] = [];
         for (let i = 0; i < texts.length; i += 5) out.push(...(await Promise.all(texts.slice(i, i + 5).map((t) => translateOne(t, target)))));
         if (out.every((t) => t === null)) return reply.code(502).send({ error: "the translation service did not answer" });
