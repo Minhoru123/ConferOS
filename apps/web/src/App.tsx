@@ -7,6 +7,8 @@ import {
   Hash,
   KeyRound,
   Languages,
+  LogOut,
+  UserRound,
   Lock,
   Megaphone,
   MessagesSquare,
@@ -98,7 +100,7 @@ export function App() {
   const [term, setTerm] = useState("");
   const [tab, setTab] = useState<Tab>("transcript");
   const [view, setView] = useState<View>("participant");
-  const [name, setName] = useState(() => load("conferos-name", ""));
+  const [name, setName] = useState(() => load("conferos-name", "John Doe"));
   const [draft, setDraft] = useState("");
   const [lang, setLang] = useState("en");
   const [translated, setTranslated] = useState<Record<string, string>>({});
@@ -233,7 +235,7 @@ export function App() {
     chatEndRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, tab]);
 
-  const me = name.trim() || "Guest";
+  const me = name.trim() || "John Doe";
   function send(textToSend: string) {
     const t = textToSend.trim();
     if (!t) return;
@@ -327,6 +329,31 @@ export function App() {
             >
               {theme === "light" ? <Moon size={20} aria-hidden="true" /> : <Sun size={20} aria-hidden="true" />}
             </button>
+            <details className="relative">
+              <summary aria-label={`Signed in as John Doe, ${view}`} className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-border bg-card py-1 pl-1 pr-3 hover:border-primary [&::-webkit-details-marker]:hidden">
+                <span aria-hidden="true" className="font-display grid h-9 w-9 place-items-center rounded-lg bg-[#ffd84d] text-sm font-bold text-[#0f1b2d]">JD</span>
+                <span className="hidden text-left leading-tight sm:block">
+                  <span className="block text-sm font-bold">John Doe</span>
+                  <span className="block text-xs text-muted-foreground">{view === "organizer" ? "Organizer" : "Participant"} · Ctrl-Alt-Build</span>
+                </span>
+              </summary>
+              <div className="absolute right-0 top-[calc(100%+8px)] z-30 flex w-72 flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl">
+                <div className="flex items-center gap-3">
+                  <span aria-hidden="true" className="font-display grid h-12 w-12 place-items-center rounded-xl bg-[#ffd84d] font-bold text-[#0f1b2d]">JD</span>
+                  <div>
+                    <p className="font-bold">John Doe</p>
+                    <p className="text-sm text-muted-foreground">john.doe@example.com</p>
+                  </div>
+                </div>
+                <ul className="flex flex-col gap-1 text-sm">
+                  <li className="flex items-center gap-2"><UserRound size={16} aria-hidden="true" /> {view === "organizer" ? "Organizer" : "Participant"} at Cloud Native Hackathon</li>
+                  <li className="flex items-center gap-2"><Users size={16} aria-hidden="true" /> Team Ctrl-Alt-Build</li>
+                  <li className="flex items-center gap-2"><Languages size={16} aria-hidden="true" /> Captions in {LANGUAGES.find(([v]) => v === lang)?.[1] ?? "English"}</li>
+                </ul>
+                <p className="font-mono rounded-md border border-dashed border-border p-2 text-xs text-muted-foreground">Sample profile for the demo. Sign-in is not built yet.</p>
+                <button disabled className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border px-3 font-bold text-muted-foreground"><LogOut size={16} aria-hidden="true" /> Sign out</button>
+              </div>
+            </details>
             <details className="relative">
               <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-border bg-card px-4 font-bold hover:border-primary [&::-webkit-details-marker]:hidden">
                 <Settings2 size={18} aria-hidden="true" /> Display
