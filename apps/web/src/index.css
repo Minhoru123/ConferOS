@@ -1,5 +1,3 @@
-@layer reset, astryx-base, theme, base, components, utilities;
-@import "@astryxdesign/core/astryx.css";
 @import "tailwindcss";
 
 /* Theme tokens. Light is the default; the theme switch sets data-theme="dark" on the app wrapper.

@@ -42,8 +42,6 @@ import { TagsContext, TrackTag } from "./tags";
 import { Presenter } from "./Presenter";
 import { signals } from "./live";
 import { LANGUAGES } from "./Translate";
-import { Theme as AstryxTheme } from "@astryxdesign/core/theme";
-import { themes, defaultThemeSlug } from "./astryx-themes";
 import { Button } from "./components/ui/button";
 
 const clock = (ts: string) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -344,7 +342,6 @@ export function App() {
   const CurrentIcon = room ? RoomIcon(room) : Hash;
 
   return (
-    <AstryxTheme theme={themes[defaultThemeSlug]} mode={theme}>
     <TagsContext.Provider value={tags}>
     <div data-theme={theme} data-contrast={contrast ? "high" : "normal"} style={{ ["--scale" as string]: scale }} className="dots min-h-screen bg-background text-foreground">
       <a href="#stage" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground">
@@ -360,7 +357,7 @@ export function App() {
               <Captions size={22} />
             </span>
             <div>
-              <p className="font-display text-xl font-bold leading-tight">Backchannel</p>
+              <p className="font-display text-xl font-bold leading-tight">ConferOS <span className="font-normal text-muted-foreground">· Backchannel</span></p>
               <p className="text-sm text-muted-foreground">Cloud Native Hackathon · Salt Lake City · Nov 9</p>
             </div>
           </div>
@@ -727,6 +724,5 @@ export function App() {
       <DemoDock view={view} setView={setView} tags={tags} setTags={setTags} sampleOn={voice} onSample={startSample} onStopSample={stopSample} onReset={resetRoom} onLoad={loadTranscript} onAsk={askScenario} hasLines={segments.length > 0} roomId={roomId} roomName={room?.name ?? "this room"} code={code} note={demoNote} />
     </div>
     </TagsContext.Provider>
-    </AstryxTheme>
   );
 }
