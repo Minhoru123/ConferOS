@@ -1,26 +1,46 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type Answer, type Room, type Segment } from "./api";
+import { api, type ChatMessage, type Room, type Segment } from "./api";
+import { AVPanel } from "./AVPanel";
 import { Presenter } from "./Presenter";
+import { LANGUAGES, makeTranslator, translationSupported } from "./Translate";
 import { Button } from "./components/ui/button";
 
 const clock = (ts: string) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const GROUPS: [Room["kind"], string][] = [
-  ["stage", "Stage"],
-  ["focus", "Focus rooms"],
-  ["team", "Team rooms"],
+  ["stage", "Main room"],
+  ["focus", "Focus groups"],
+  ["team", "Team zones"],
 ];
-const SUGGESTIONS = ["When is lunch?", "When do submissions close?", "Is there a quiet space?"];
-type Tab = "transcript" | "ask" | "presenter";
-interface Asked {
-  q: string;
-  a?: Answer;
-  err?: string;
+type Tab = "transcript" | "chat";
+type View = "participant" | "organizer";
+
+function load<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? (JSON.parse(v) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function save(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage unavailable: keep working without it */
+  }
+}
+function byId<T extends { id: string }>(a: T[], b: T[], order: (x: T, y: T) => number) {
+  const m = new Map<string, T>();
+  for (const x of [...a, ...b]) m.set(x.id, x);
+  return [...m.values()].sort(order);
 }
 
 export function App() {
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [zones, setZones] = useState<Room[]>(() => load<Room[]>("conferos-zones", []));
   const [roomId, setRoomId] = useState("main");
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [announce, setAnnounce] = useState(false);
   const [scale, setScale] = useState(1);
   const [contrast, setContrast] = useState(false);
@@ -29,40 +49,94 @@ export function App() {
   const [frozen, setFrozen] = useState(0);
   const [term, setTerm] = useState("");
   const [tab, setTab] = useState<Tab>("transcript");
-  const [question, setQuestion] = useState("");
-  const [asked, setAsked] = useState<Asked[]>([]);
+  const [view, setView] = useState<View>("participant");
+  const [name, setName] = useState(() => load("conferos-name", ""));
+  const [draft, setDraft] = useState("");
+  const [lang, setLang] = useState("en");
+  const [translated, setTranslated] = useState<Record<string, string>>({});
+  const [langNote, setLangNote] = useState("");
   const [error, setError] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newKind, setNewKind] = useState<"focus" | "team">("focus");
+  const [joinCode, setJoinCode] = useState("");
+  const [roomNote, setRoomNote] = useState("");
+  const translatorRef = useRef<{ translate(t: string): Promise<string> } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const askEndRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.rooms().then(setRooms).catch((e: Error) => setError(e.message));
   }, []);
 
+  const allRooms = [...rooms, ...zones.filter((z) => !rooms.some((r) => r.id === z.id))];
+  const room = allRooms.find((r) => r.id === roomId);
+  const code = zones.find((z) => z.id === roomId)?.code;
+
   useEffect(() => {
     setSegments([]);
-    setAsked([]);
+    setMessages([]);
     setPaused(false);
     setTerm("");
     let current = true;
-    const merge = (a: Segment[], b: Segment[]) => {
-      const byId = new Map<string, Segment>();
-      for (const s of [...a, ...b]) byId.set(s.id, s);
-      return [...byId.values()].sort((x, y) => x.seq - y.seq);
-    };
-    const stop = api.stream(roomId, (s) => current && setSegments((cur) => merge(cur, [s])));
-    api
-      .segments(roomId)
-      .then((list) => current && setSegments((cur) => merge(list, cur)))
-      .catch((e: Error) => current && setError(e.message));
+    const seq = (x: Segment, y: Segment) => x.seq - y.seq;
+    const time = (x: ChatMessage, y: ChatMessage) => x.ts.localeCompare(y.ts);
+    const stop = api.stream(roomId, code, {
+      segment: (s) => current && setSegments((cur) => byId(cur, [s], seq)),
+      message: (m) => current && setMessages((cur) => byId(cur, [m], time)),
+    });
+    api.segments(roomId, code).then((l) => current && setSegments((cur) => byId(l, cur, seq))).catch((e: Error) => current && setError(e.message));
+    api.messages(roomId, code).then((l) => current && setMessages((cur) => byId(l, cur, time))).catch(() => undefined);
     return () => {
       current = false;
       stop();
     };
-  }, [roomId]);
+  }, [roomId, code]);
+
+  // Translate new lines as they arrive, on the device.
+  useEffect(() => {
+    const t = translatorRef.current;
+    if (lang === "en" || !t) return;
+    let alive = true;
+    (async () => {
+      for (const s of segments.slice(-40)) {
+        const k = `${lang}:${s.id}`;
+        if (!alive) return;
+        if (translated[k]) continue;
+        try {
+          const out = await t.translate(s.text);
+          if (alive) setTranslated((cur) => ({ ...cur, [k]: out }));
+        } catch {
+          return;
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [segments, lang, translated]);
+
+  async function chooseLanguage(next: string) {
+    setLang(next);
+    setLangNote("");
+    translatorRef.current = null;
+    if (next === "en") return;
+    if (!translationSupported()) {
+      setLangNote("Translation runs on your device in Chrome 138 or later. This browser does not support it yet.");
+      return;
+    }
+    setLangNote("Preparing translation…");
+    const t = await makeTranslator(next);
+    if (!t) setLangNote("This language is not available for on-device translation in this browser.");
+    else {
+      translatorRef.current = t;
+      setLangNote("");
+      setTranslated((cur) => ({ ...cur }));
+    }
+  }
+  const text = (s: Segment) => (lang === "en" ? s.text : translated[`${lang}:${s.id}`] ?? s.text);
 
   const upToNow = paused ? segments.slice(0, frozen) : segments;
-  const visible = term ? upToNow.filter((s) => s.text.toLowerCase().includes(term.toLowerCase())) : upToNow;
+  const visible = term ? upToNow.filter((s) => text(s).toLowerCase().includes(term.toLowerCase()) || s.text.toLowerCase().includes(term.toLowerCase())) : upToNow;
   const latest = upToNow.at(-1);
   const previous = upToNow.at(-2);
   const missed = paused ? segments.length - frozen : 0;
@@ -71,20 +145,48 @@ export function App() {
     if (!paused && !term) endRef.current?.scrollIntoView({ block: "end" });
   }, [segments.length, paused, term, tab]);
   useEffect(() => {
-    askEndRef.current?.scrollIntoView({ block: "end" });
-  }, [asked.length]);
+    chatEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages.length, tab]);
 
-  const room = rooms.find((r) => r.id === roomId);
-  const ask = (q: string) => {
-    const text = q.trim();
-    if (!text) return;
-    setQuestion("");
-    setAsked((cur) => [...cur, { q: text }]);
-    api
-      .ask(roomId, text)
-      .then((a) => setAsked((cur) => cur.map((x, i) => (i === cur.length - 1 ? { ...x, a } : x))))
-      .catch((e: Error) => setAsked((cur) => cur.map((x, i) => (i === cur.length - 1 ? { ...x, err: e.message } : x))));
-  };
+  function send(textToSend: string) {
+    const t = textToSend.trim();
+    if (!t) return;
+    const author = name.trim() || "Guest";
+    save("conferos-name", author);
+    setDraft("");
+    api.sendMessage(roomId, author, t, code).catch((e: Error) => setError(e.message));
+  }
+  function remember(r: Room) {
+    if (!r.priv) return;
+    const next = [...zones.filter((z) => z.id !== r.id), r];
+    setZones(next);
+    save("conferos-zones", next);
+  }
+  async function createRoom() {
+    const n = newName.trim();
+    if (!n) return;
+    try {
+      const r = await api.createRoom(n, newKind, newKind === "team");
+      if (r.priv) remember(r);
+      else setRooms((cur) => [...cur, r]);
+      setRoomId(r.id);
+      setNewName("");
+      setRoomNote(r.priv ? `Team zone created. Share the join code ${r.code} with your team.` : "Focus group created.");
+    } catch (e) {
+      setRoomNote(`Could not create the room: ${(e as Error).message}`);
+    }
+  }
+  async function join() {
+    try {
+      const r = await api.joinRoom(joinCode);
+      remember(r);
+      setRoomId(r.id);
+      setJoinCode("");
+      setRoomNote(`Joined ${r.name}.`);
+    } catch (e) {
+      setRoomNote((e as Error).message);
+    }
+  }
   const togglePause = () => {
     if (paused) setPaused(false);
     else {
@@ -94,9 +196,9 @@ export function App() {
   };
   const tabs: [Tab, string][] = [
     ["transcript", "Transcript"],
-    ["ask", "Ask AI"],
-    ["presenter", "Presenter"],
+    ["chat", "Chat"],
   ];
+  const input = "min-h-11 min-w-0 rounded-xl border border-border bg-background px-3";
 
   return (
     <div data-contrast={contrast ? "high" : "normal"} style={{ ["--scale" as string]: scale }} className="min-h-screen bg-background text-foreground">
@@ -104,7 +206,7 @@ export function App() {
         Skip to live captions
       </a>
 
-      <header className="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-border bg-card">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3">
             <span aria-hidden="true" className="font-display grid h-9 w-9 place-items-center rounded-xl bg-primary text-lg font-bold text-primary-foreground">B</span>
@@ -113,22 +215,45 @@ export function App() {
               <p className="text-sm text-muted-foreground">Cloud Native Hackathon · Salt Lake City</p>
             </div>
           </div>
-          <div role="group" aria-label="Reading controls" className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" aria-label="Make text smaller" onClick={() => setScale((s) => Math.max(0.85, +(s - 0.15).toFixed(2)))}>A−</Button>
-            <Button variant="outline" aria-label="Make text larger" onClick={() => setScale((s) => Math.min(1.6, +(s + 0.15).toFixed(2)))}>A+</Button>
-            <Button variant="outline" aria-pressed={contrast} onClick={() => setContrast((c) => !c)}>High contrast</Button>
-            <Button variant="outline" aria-pressed={calm} onClick={() => setCalm((c) => !c)}>Calm mode</Button>
-            <Button variant="outline" aria-pressed={announce} onClick={() => setAnnounce((a) => !a)}>Read new lines aloud</Button>
+          <div role="group" aria-label="View" className="flex rounded-xl border border-border bg-background p-1">
+            {(["participant", "organizer"] as View[]).map((v) => (
+              <button key={v} aria-pressed={view === v} onClick={() => setView(v)} className="min-h-10 rounded-lg px-4 font-bold text-muted-foreground aria-pressed:bg-primary aria-pressed:text-primary-foreground">
+                {v === "participant" ? "Participant view" : "Organizer view"}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="lang" className="sr-only">Caption language</label>
+            <select id="lang" value={lang} onChange={(e) => void chooseLanguage(e.target.value)} className={`${input} font-bold`}>
+              {LANGUAGES.map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+            <details className="relative">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center rounded-xl border border-border bg-card px-4 font-bold hover:border-primary [&::-webkit-details-marker]:hidden">Display</summary>
+              <div className="absolute right-0 top-[calc(100%+8px)] z-30 flex w-72 flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <span>Text size</span>
+                  <span className="flex gap-2">
+                    <Button variant="outline" aria-label="Smaller text" onClick={() => setScale((s) => Math.max(0.85, +(s - 0.15).toFixed(2)))}>A−</Button>
+                    <Button variant="outline" aria-label="Larger text" onClick={() => setScale((s) => Math.min(1.6, +(s + 0.15).toFixed(2)))}>A+</Button>
+                  </span>
+                </div>
+                <label className="flex min-h-11 items-center gap-3"><input type="checkbox" className="h-5 w-5" checked={contrast} onChange={(e) => setContrast(e.target.checked)} />Stronger contrast</label>
+                <label className="flex min-h-11 items-center gap-3"><input type="checkbox" className="h-5 w-5" checked={calm} onChange={(e) => setCalm(e.target.checked)} />Captions only</label>
+                <label className="flex min-h-11 items-center gap-3"><input type="checkbox" className="h-5 w-5" checked={announce} onChange={(e) => setAnnounce(e.target.checked)} />Read new lines with a screen reader</label>
+              </div>
+            </details>
           </div>
         </div>
+        {langNote && <p role="status" className="mx-auto max-w-[1440px] px-4 pb-2 text-sm text-muted-foreground">{langNote}</p>}
       </header>
 
-      <div className={`mx-auto grid gap-4 p-4 ${calm ? "max-w-4xl" : "max-w-[1440px] lg:grid-cols-[250px_minmax(0,1fr)_420px]"}`}>
+      <div className={`mx-auto grid gap-4 p-4 ${calm ? "max-w-4xl" : "max-w-[1440px] lg:grid-cols-[260px_minmax(0,1fr)_420px]"}`}>
         {!calm && (
           <nav aria-label="Rooms" className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-3 lg:self-start">
             {GROUPS.map(([kind, label]) => {
-              const items = rooms.filter((r) => r.kind === kind);
-              if (!items.length) return null;
+              const items = allRooms.filter((r) => r.kind === kind);
               return (
                 <div key={kind}>
                   <h2 className="font-mono px-2 pb-1 text-[0.7rem] uppercase tracking-[0.12em] text-muted-foreground">{label}</h2>
@@ -140,16 +265,36 @@ export function App() {
                           aria-current={r.id === roomId}
                           onClick={() => setRoomId(r.id)}
                         >
-                          <span aria-hidden="true" className="text-muted-foreground">{r.kind === "stage" ? "◉" : "#"}</span>
+                          <span aria-hidden="true" className="w-4 text-muted-foreground">{r.kind === "stage" ? "◉" : r.priv ? "🔒" : "#"}</span>
                           <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                          {r.id === roomId && <span className="text-[#c2331f] dark:text-[#ff8f7c]"><span className="live-dot" aria-hidden="true" /><span className="sr-only">Live</span></span>}
+                          {r.priv && <span className="sr-only">(private)</span>}
                         </button>
                       </li>
                     ))}
+                    {items.length === 0 && <li className="px-3 text-sm text-muted-foreground">None yet</li>}
                   </ul>
                 </div>
               );
             })}
+            <details className="rounded-xl border border-border p-2">
+              <summary className="min-h-11 cursor-pointer px-1 py-2 font-bold">Start or join a room</summary>
+              <div className="flex flex-col gap-2 pt-2">
+                <label htmlFor="newName" className="text-sm font-bold">Room name</label>
+                <input id="newName" value={newName} onChange={(e) => setNewName(e.target.value)} className={input} placeholder="e.g. Kubernetes help" />
+                <fieldset className="flex flex-col gap-1">
+                  <legend className="text-sm font-bold">Kind</legend>
+                  <label className="flex min-h-11 items-center gap-2"><input type="radio" name="kind" checked={newKind === "focus"} onChange={() => setNewKind("focus")} />Focus group, open to everyone</label>
+                  <label className="flex min-h-11 items-center gap-2"><input type="radio" name="kind" checked={newKind === "team"} onChange={() => setNewKind("team")} />Team zone, private with a join code</label>
+                </fieldset>
+                <Button onClick={() => void createRoom()}>Create room</Button>
+                <label htmlFor="joinCode" className="pt-2 text-sm font-bold">Have a team zone code?</label>
+                <div className="flex gap-2">
+                  <input id="joinCode" value={joinCode} onChange={(e) => setJoinCode(e.target.value)} className={`${input} flex-1 uppercase`} placeholder="ABC123" />
+                  <Button variant="outline" onClick={() => void join()}>Join</Button>
+                </div>
+                {roomNote && <p role="status" className="text-sm">{roomNote}</p>}
+              </div>
+            </details>
           </nav>
         )}
 
@@ -157,49 +302,54 @@ export function App() {
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
               <h1 className="font-display text-2xl font-bold sm:text-3xl">{room?.name ?? "Room"}</h1>
-              <p className="text-muted-foreground">{room?.desc}</p>
+              <p className="text-muted-foreground">
+                {room?.desc}
+                {room?.priv && code ? ` · Private team zone, join code ${code}` : ""}
+              </p>
             </div>
-            <span className="font-mono inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.1em] text-[#c2331f]">
-              <span className="live-dot" aria-hidden="true" /> {paused ? "Paused" : "Live captions"}
-            </span>
           </div>
 
           {error && <p role="alert" className="rounded-xl border border-border bg-muted p-3">Something went wrong: {error}</p>}
 
-          <section id="stage" tabIndex={-1} aria-label="Live captions" className="relative overflow-hidden rounded-2xl bg-[#0d1422] text-white shadow-[0_24px_60px_-30px_rgba(15,27,45,0.6)]">
+          {!calm && room && <AVPanel key={`${room.id}-${view}`} room={room} organizer={view === "organizer"} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />}
+
+          <section id="stage" tabIndex={-1} aria-label="Live captions" className="relative overflow-hidden rounded-2xl bg-[#0d1422] text-white">
             <div className="flex items-center justify-between gap-2 px-5 pt-4 text-sm text-[#c9d4e6]">
               <span className="inline-flex items-center gap-2 rounded-full bg-black/40 px-3 py-1">
-                <span className="live-dot text-[#ff8f7c]" aria-hidden="true" /> Live
+                <span className="live-dot text-[#ff8f7c]" aria-hidden="true" /> {paused ? "Paused" : "Live"}
               </span>
               <span>{segments.length} lines so far</span>
             </div>
-            <div className={`flex flex-col justify-end gap-3 px-5 pb-5 pt-8 ${calm ? "min-h-[46vh]" : "min-h-[260px] lg:min-h-[460px]"}`}>
-              {previous && !calm && <p className="text-[#8e9bb5]" style={{ fontSize: "calc(1.05rem * var(--scale))" }}>{previous.text}</p>}
+            <div className={`flex flex-col justify-end gap-3 px-5 pb-5 pt-8 ${calm ? "min-h-[46vh]" : "min-h-[240px] lg:min-h-[300px]"}`}>
+              {previous && !calm && <p lang={lang} className="text-[#a3b0c5]" style={{ fontSize: "calc(1.05rem * var(--scale))" }}>{text(previous)}</p>}
               <div aria-hidden="true" className="rounded-xl bg-[#080c14] px-4 py-3">
                 <span className="font-mono block text-[0.72rem] uppercase tracking-[0.12em] text-[#ffd84d]">{latest ? latest.speaker : "Waiting for the speaker"}</span>
-                <p style={{ fontSize: `calc(${calm ? 2 : 1.5}rem * var(--scale))`, lineHeight: 1.35 }}>
-                  {latest ? latest.text : "Captions appear here as soon as someone speaks."}
+                <p lang={lang} style={{ fontSize: `calc(${calm ? 2 : 1.5}rem * var(--scale))`, lineHeight: 1.35 }}>
+                  {latest ? text(latest) : "Captions appear here as soon as someone speaks."}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button onClick={togglePause} aria-pressed={paused} className="min-h-11 rounded-xl bg-white/10 px-4 font-bold hover:bg-white/20">
                   {paused ? (missed > 0 ? `Jump to live (${missed} new)` : "Resume") : "Pause"}
                 </button>
-                {!calm && (
-                  <button onClick={() => setTab("ask")} className="min-h-11 rounded-xl bg-white/10 px-4 font-bold hover:bg-white/20">
-                    Ask about this talk
-                  </button>
-                )}
               </div>
             </div>
           </section>
 
+          {view === "organizer" && !calm && (
+            <section aria-labelledby="org-h" className="rounded-2xl border border-border bg-card">
+              <h2 id="org-h" className="font-display px-4 pt-4 text-xl font-bold">Organizer tools</h2>
+              <p className="px-4 text-sm text-muted-foreground">Caption the room from your microphone, type an announcement, or replay a sample talk.</p>
+              <Presenter roomId={roomId} code={code} />
+            </section>
+          )}
+
           {calm && (
             <ol aria-label="Latest lines" className="flex flex-col gap-3">
               {upToNow.slice(-3).map((s) => (
-                <li key={s.id} className="rounded-2xl border border-border bg-card p-4" style={{ fontSize: "calc(1.35rem * var(--scale))" }}>
+                <li key={s.id} lang={lang} className="rounded-2xl border border-border bg-card p-4" style={{ fontSize: "calc(1.35rem * var(--scale))" }}>
                   <span className="font-mono block text-xs uppercase tracking-wide text-muted-foreground">{clock(s.ts)} · {s.speaker}</span>
-                  {s.text}
+                  {text(s)}
                 </li>
               ))}
             </ol>
@@ -207,7 +357,7 @@ export function App() {
         </main>
 
         {!calm && (
-          <aside aria-label="Transcript, Ask and presenter tools" className="flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-card lg:h-[calc(100vh-120px)] lg:sticky lg:top-[88px]">
+          <aside aria-label="Transcript, chat and presenter tools" className="flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-card lg:sticky lg:top-[88px] lg:h-[calc(100vh-120px)]">
             <div role="tablist" aria-label="Room panel" className="flex gap-1 border-b border-border px-2 pt-2">
               {tabs.map(([id, label], i) => (
                 <button
@@ -234,17 +384,17 @@ export function App() {
 
             <div role="tabpanel" id="panel-transcript" aria-labelledby="tab-transcript" hidden={tab !== "transcript"} className="flex min-h-0 flex-1 flex-col">
               <div className="flex gap-2 border-b border-border p-3">
-                <label htmlFor="search" className="sr-only">Search this transcript</label>
-                <input id="search" type="search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search what was said" className="min-h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3" />
+                <label htmlFor="search" className="sr-only">Search what was said</label>
+                <input id="search" type="search" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search what was said" className={`${input} flex-1`} />
               </div>
               <div role="log" aria-live={announce ? "polite" : "off"} aria-label="Transcript" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
                 {visible.length === 0 && <p className="p-3 text-muted-foreground">{term ? `No lines match "${term}".` : "The transcript starts when someone speaks."}</p>}
                 {visible.map((s) => (
                   <div key={s.id} className="grid grid-cols-[76px_minmax(0,1fr)] gap-2 border-t border-border py-3 first:border-t-0">
                     <time className="font-mono whitespace-nowrap pt-1 text-xs text-muted-foreground">{clock(s.ts)}</time>
-                    <p style={{ fontSize: "calc(1.02rem * var(--scale))", lineHeight: 1.5 }}>
+                    <p lang={lang} style={{ fontSize: "calc(1.02rem * var(--scale))", lineHeight: 1.5 }}>
                       <span className="font-mono block text-[0.7rem] uppercase tracking-wide text-muted-foreground">{s.speaker}</span>
-                      {s.text}
+                      {text(s)}
                     </p>
                   </div>
                 ))}
@@ -252,55 +402,52 @@ export function App() {
               </div>
             </div>
 
-            <div role="tabpanel" id="panel-ask" aria-labelledby="tab-ask" hidden={tab !== "ask"} className="flex min-h-0 flex-1 flex-col">
-              <p className="px-4 pt-3 text-sm text-muted-foreground">Answers come only from what was said in this room, with the time it was said.</p>
-              <div aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-                {asked.length === 0 && <p className="text-muted-foreground">Ask anything about this room, for example "{SUGGESTIONS[0]}"</p>}
-                {asked.map((x, i) => (
-                  <div key={i} className="flex flex-col gap-2">
-                    <p className="max-w-[90%] self-end rounded-2xl bg-primary px-3 py-2 text-primary-foreground" style={{ fontSize: "calc(1rem * var(--scale))" }}>{x.q}</p>
-                    <div className="max-w-[92%] self-start rounded-2xl bg-muted px-3 py-2" style={{ fontSize: "calc(1rem * var(--scale))" }}>
-                      {!x.a && !x.err && <span className="text-muted-foreground">Looking through the transcript…</span>}
-                      {x.err && <span>Could not get an answer: {x.err}</span>}
-                      {x.a && (
-                        <>
-                          <p>{x.a.answer}</p>
-                          {x.a.citations.length > 0 && (
-                            <p className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                              Source:
-                              {x.a.citations.map((c) => (
-                                <span key={c.seq} className="font-mono rounded-md border border-primary px-2 text-primary">Said at {clock(c.ts)}</span>
-                              ))}
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
+            <div role="tabpanel" id="panel-chat" aria-labelledby="tab-chat" hidden={tab !== "chat"} className="flex min-h-0 flex-1 flex-col">
+              <p className="px-4 pt-3 text-sm text-muted-foreground">Chat with the room. Start a message with <strong>@ai</strong> to ask about anything said here. It answers only from the transcript, with the time it was said.</p>
+              <div role="log" aria-live="polite" aria-label="Room chat" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+                {messages.length === 0 && <p className="text-muted-foreground">No messages yet.</p>}
+                {messages.map((m) => (
+                  <div key={m.id} className={`flex max-w-[92%] flex-col gap-1 ${m.author === (name.trim() || "Guest") && !m.bot ? "self-end items-end" : "self-start"}`}>
+                    <span className="text-xs text-muted-foreground">
+                      {m.bot ? <strong className="text-foreground">Backchannel AI</strong> : <strong className="text-foreground">{m.author}</strong>} · {clock(m.ts)}
+                    </span>
+                    <p className={`rounded-2xl px-3 py-2 ${m.bot ? "border border-primary bg-accent" : m.author === (name.trim() || "Guest") ? "bg-primary text-primary-foreground" : "bg-muted"}`} style={{ fontSize: "calc(1rem * var(--scale))" }}>
+                      {m.text}
+                    </p>
+                    {m.bot && m.citations && m.citations.length > 0 && (
+                      <span className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        Source:
+                        {m.citations.map((c) => (
+                          <span key={c.seq} className="font-mono rounded-md border border-primary px-2 text-primary">Said at {clock(c.ts)}</span>
+                        ))}
+                      </span>
+                    )}
                   </div>
                 ))}
-                <div ref={askEndRef} />
+                <div ref={chatEndRef} />
               </div>
               <div className="flex flex-wrap gap-2 px-4 pb-2">
-                {SUGGESTIONS.map((s) => (
-                  <button key={s} onClick={() => ask(s)} className="min-h-10 rounded-full border border-border bg-background px-3 text-sm hover:border-primary">{s}</button>
+                {["@ai When is lunch?", "@ai When do submissions close?"].map((s) => (
+                  <button key={s} onClick={() => send(s)} className="min-h-10 rounded-full border border-border bg-background px-3 text-sm hover:border-primary">{s}</button>
                 ))}
               </div>
               <form
-                className="flex gap-2 border-t border-border p-3"
+                className="flex flex-col gap-2 border-t border-border p-3"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  ask(question);
+                  send(draft);
                 }}
               >
-                <label htmlFor="q" className="sr-only">Ask about this room</label>
-                <input id="q" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask about what was said" className="min-h-11 min-w-0 flex-1 rounded-xl border border-border bg-background px-3" />
-                <Button type="submit">Ask</Button>
+                <div className="flex gap-2">
+                  <label htmlFor="name" className="sr-only">Your name</label>
+                  <input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className={`${input} w-32`} />
+                  <label htmlFor="draft" className="sr-only">Message</label>
+                  <input id="draft" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Message, or @ai and a question" className={`${input} flex-1`} />
+                </div>
+                <Button type="submit" className="self-end">Send</Button>
               </form>
             </div>
 
-            <div role="tabpanel" id="panel-presenter" aria-labelledby="tab-presenter" hidden={tab !== "presenter"} className="min-h-0 flex-1 overflow-y-auto">
-              <Presenter roomId={roomId} />
-            </div>
           </aside>
         )}
       </div>

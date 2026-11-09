@@ -43,7 +43,7 @@ function describeError(code: string): string {
  * Microphone captions use the browser's built-in speech recognition (Chrome or Edge). The audio goes to the
  * browser vendor's speech service, not to this app. It only works on localhost or HTTPS.
  */
-export function Presenter({ roomId }: { roomId: string }) {
+export function Presenter({ roomId, code }: { roomId: string; code?: string }) {
   const [keyRequired, setKeyRequired] = useState(false);
   const [key, setKey] = useState(() => sessionStorage.getItem("presenterKey") ?? "");
   const [speaker, setSpeaker] = useState("Speaker");
@@ -57,6 +57,8 @@ export function Presenter({ roomId }: { roomId: string }) {
   const recRef = useRef<Recognizer | null>(null);
   const flushRef = useRef<(() => void) | null>(null);
   const roomRef = useRef(roomId);
+  const codeRef = useRef(code);
+  codeRef.current = code;
   const keyRef = useRef(key);
   const speakerRef = useRef(speaker);
   roomRef.current = roomId;
@@ -69,7 +71,7 @@ export function Presenter({ roomId }: { roomId: string }) {
 
   function send(text: string, source: "mic" | "typed", lagMs?: number, room = roomRef.current) {
     api
-      .addLine(room, { speaker: speakerRef.current.trim() || "Speaker", text, source, ...(lagMs !== undefined ? { lagMs } : {}) }, keyRef.current || undefined)
+      .addLine(room, { speaker: speakerRef.current.trim() || "Speaker", text, source, ...(lagMs !== undefined ? { lagMs } : {}) }, keyRef.current || undefined, codeRef.current)
       .then(() => setSent((n) => n + 1))
       .catch((e: Error) => setError(e instanceof ApiError && e.status === 401 ? "The presenter key is missing or wrong." : `Could not send the line: ${e.message}`));
   }

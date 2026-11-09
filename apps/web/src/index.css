@@ -90,3 +90,31 @@ body {
 .font-mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
 @keyframes live-pulse { 50% { opacity: 0.3; } }
 .live-dot { width: 9px; height: 9px; border-radius: 9999px; background: currentColor; display: inline-block; animation: live-pulse 1.8s ease-in-out infinite; }
+
+/* Follow the system's "increase contrast" setting automatically. */
+@media (prefers-contrast: more) {
+  :root {
+    --background: #ffffff;
+    --foreground: #000000;
+    --card: #ffffff;
+    --muted: #ffffff;
+    --muted-foreground: #000000;
+    --border: #000000;
+    --primary: #14208f;
+    --primary-foreground: #ffffff;
+    --accent: #ffffff;
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --background: #000000;
+    --foreground: #ffffff;
+    --card: #000000;
+    --muted: #000000;
+    --muted-foreground: #ffffff;
+    --border: #ffffff;
+    --primary: #b3bcff;
+    --primary-foreground: #000000;
+    --accent: #000000;
+  }
+}
