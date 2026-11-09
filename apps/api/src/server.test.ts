@@ -151,3 +151,14 @@ describe("organizer stats", () => {
     expect(s).toMatchObject({ lines: 3, messages: 2, aiQuestions: 1, lagP50: 600, lagP95: 900 });
   });
 });
+
+describe("demo reset", () => {
+  it("clears a room's lines and chat", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "", dev: true });
+    await app.inject({ method: "POST", url: "/api/rooms/main/segments", payload: { speaker: "A", text: "Lunch is at one." } });
+    await app.inject({ method: "POST", url: "/api/rooms/main/messages", payload: { author: "Ana", text: "Hi" } });
+    expect((await app.inject({ method: "POST", url: "/api/dev/reset/main", payload: {} })).statusCode).toBe(202);
+    expect((await app.inject({ url: "/api/rooms/main/segments" })).json()).toHaveLength(0);
+    expect((await app.inject({ url: "/api/rooms/main/messages" })).json()).toHaveLength(0);
+  });
+});

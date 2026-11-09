@@ -1,28 +1,32 @@
-import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
-import * as React from "react";
-import { cn } from "@/lib/utils";
+import { Button as AstryxButton } from "@astryxdesign/core/Button";
+import type { ReactNode } from "react";
 
-const buttonVariants = cva(
-  "inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition-colors disabled:opacity-50",
-  {
-    variants: {
-      variant: {
-        default: "border-primary bg-primary text-primary-foreground hover:opacity-90",
-        outline: "border-border bg-card text-foreground hover:border-primary",
-        ghost: "border-transparent bg-transparent hover:bg-accent",
-      },
-    },
-    defaultVariants: { variant: "default" },
-  },
-);
+type Props = {
+  variant?: "default" | "outline" | "ghost";
+  children?: ReactNode;
+  disabled?: boolean;
+  type?: "button" | "submit" | "reset";
+  className?: string;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  "aria-label"?: string;
+  "aria-pressed"?: boolean;
+};
 
-export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
-  asChild?: boolean;
+const VARIANT = { default: "primary", outline: "secondary", ghost: "ghost" } as const;
+
+/** Thin adapter so call sites keep their API while rendering the Astryx button. */
+export function Button({ variant = "default", children, disabled, className, "aria-label": ariaLabel, ...rest }: Props) {
+  return (
+    <AstryxButton
+      label={ariaLabel ?? "Action"}
+      aria-label={ariaLabel}
+      variant={VARIANT[variant]}
+      size="lg"
+      isDisabled={disabled}
+      className={className}
+      {...rest}
+    >
+      {children}
+    </AstryxButton>
+  );
 }
-
-export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({ className, variant, asChild = false, ...props }, ref) => {
-  const Comp = asChild ? Slot : "button";
-  return <Comp ref={ref} className={cn(buttonVariants({ variant }), className)} {...props} />;
-});
-Button.displayName = "Button";

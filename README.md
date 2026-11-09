@@ -41,7 +41,7 @@ Open http://localhost:8090 in Chrome. The first start takes a minute while Elast
 
 ## Demo controls
 
-A small dock in the bottom-left corner, styled like a developer toolbar, holds things that exist only for the demo: switching between Participant and Organizer view, playing a sample talk read aloud by a neural voice (pre-recorded with Microsoft Edge's online text to speech, voice en-US-AndrewNeural, in `apps/web/public/voice`), and showing or hiding tags that point at the part of the screen each hackathon track powers. In production, people sign in with their role and the dock is not there.
+A small dock in the bottom-left corner, styled like a developer toolbar, holds things that exist only for the demo: switching between Participant and Organizer view, playing a sample talk read aloud by a neural voice (pre-recorded with Microsoft Edge's online text to speech, voice en-US-AndrewNeural, in `apps/web/public/voice`), a **speak into the mic** button so judges can talk and watch their own words become captions (translated, searchable and answerable by the AI), loading or resetting the room's transcript, one-click chatbot scenarios (including a question that was never said, to show the AI does not guess), and showing or hiding tags that point at the part of the screen each hackathon track powers. In production, people sign in with their role and the dock is not there.
 
 ## Hackathon tracks
 

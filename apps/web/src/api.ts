@@ -97,11 +97,13 @@ export const api = {
   translate: (texts: string[], target: string) =>
     fetch("/api/translate", { method: "POST", headers: headers(), body: JSON.stringify({ texts, target }) }).then(json<{ texts: string[]; failed: boolean[] }>),
   replay: (id: string, key?: string, everyMs = 2500) => fetch(`/api/dev/replay/${id}?everyMs=${everyMs}`, { method: "POST", headers: headers(key), body: "{}" }).then(json<{ queued: number }>),
+  reset: (id: string, key?: string) => fetch(`/api/dev/reset/${id}`, { method: "POST", headers: headers(key), body: "{}" }).then(json<{ ok: boolean }>),
   stats: (id: string, code?: string) => fetch(`/api/rooms/${id}/stats${withCode(code)}`).then(json<RoomStats>),
-  stream: (id: string, code: string | undefined, on: { segment: (s: Segment) => void; message: (m: ChatMessage) => void; signal?: (s: Signal) => void }) => {
+  stream: (id: string, code: string | undefined, on: { segment: (s: Segment) => void; message: (m: ChatMessage) => void; signal?: (s: Signal) => void; reset?: () => void }) => {
     const es = new EventSource(`/api/rooms/${id}/stream${withCode(code)}`);
     es.addEventListener("segment", (e) => on.segment(JSON.parse((e as MessageEvent<string>).data) as Segment));
     es.addEventListener("message", (e) => on.message(JSON.parse((e as MessageEvent<string>).data) as ChatMessage));
+    es.addEventListener("reset", () => on.reset?.());
     es.addEventListener("signal", (e) => on.signal?.(JSON.parse((e as MessageEvent<string>).data) as Signal));
     return () => es.close();
   },

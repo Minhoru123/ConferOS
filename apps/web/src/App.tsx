@@ -42,6 +42,8 @@ import { TagsContext, TrackTag } from "./tags";
 import { Presenter } from "./Presenter";
 import { signals } from "./live";
 import { LANGUAGES } from "./Translate";
+import { Theme as AstryxTheme } from "@astryxdesign/core/theme";
+import { themes, defaultThemeSlug } from "./astryx-themes";
 import { Button } from "./components/ui/button";
 
 const clock = (ts: string) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -150,6 +152,13 @@ export function App() {
       segment: (s) => current && setSegments((cur) => byId(cur, [s], seq)),
       message: (m) => current && setMessages((cur) => byId(cur, [m], time)),
       signal: (sig) => current && signals.emit(sig),
+      reset: () => {
+        if (!current) return;
+        setSegments([]);
+        setMessages([]);
+        setPaused(false);
+        setTerm("");
+      },
     });
     api.segments(roomId, code).then((l) => current && setSegments((cur) => byId(l, cur, seq))).catch((e: Error) => current && setError(e.message));
     api.messages(roomId, code).then((l) => current && setMessages((cur) => byId(l, cur, time))).catch(() => undefined);
@@ -242,6 +251,25 @@ export function App() {
       .then((r) => setDemoNote(`Sample speaker is reading ${r.queued} lines on the Main stage.`))
       .catch((e: Error) => setDemoNote(`Could not start the sample: ${e.message}`));
   }
+  const key = () => sessionStorage.getItem("presenterKey") ?? undefined;
+  function resetRoom() {
+    stopSample();
+    api
+      .reset(roomId, key())
+      .then(() => setDemoNote(`Cleared the transcript and chat in ${room?.name ?? "this room"}.`))
+      .catch((e: Error) => setDemoNote(`Reset failed: ${e.message}`));
+  }
+  function loadTranscript() {
+    setRoomId("main");
+    api
+      .replay("main", key(), 200)
+      .then((r) => setDemoNote(`Loaded ${r.queued} sample lines into the Main stage.`))
+      .catch((e: Error) => setDemoNote(`Could not load the sample: ${e.message}`));
+  }
+  function askScenario(q: string) {
+    setTab("chat");
+    api.sendMessage(roomId, me, `@ai ${q}`, code).catch((e: Error) => setDemoNote(`Could not send: ${e.message}`));
+  }
   function stopSample() {
     setVoice(false);
     setSpeaking(false);
@@ -316,6 +344,7 @@ export function App() {
   const CurrentIcon = room ? RoomIcon(room) : Hash;
 
   return (
+    <AstryxTheme theme={themes[defaultThemeSlug]} mode={theme}>
     <TagsContext.Provider value={tags}>
     <div data-theme={theme} data-contrast={contrast ? "high" : "normal"} style={{ ["--scale" as string]: scale }} className="dots min-h-screen bg-background text-foreground">
       <a href="#stage" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground">
@@ -695,8 +724,9 @@ export function App() {
           </aside>
         )}
       </div>
-      <DemoDock view={view} setView={setView} tags={tags} setTags={setTags} sampleOn={voice} onSample={startSample} onStopSample={stopSample} note={demoNote} />
+      <DemoDock view={view} setView={setView} tags={tags} setTags={setTags} sampleOn={voice} onSample={startSample} onStopSample={stopSample} onReset={resetRoom} onLoad={loadTranscript} onAsk={askScenario} hasLines={segments.length > 0} roomId={roomId} roomName={room?.name ?? "this room"} code={code} note={demoNote} />
     </div>
     </TagsContext.Provider>
+    </AstryxTheme>
   );
 }

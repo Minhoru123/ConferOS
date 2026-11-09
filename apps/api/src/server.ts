@@ -75,13 +75,14 @@ export interface Deps {
   bus?: Bus<Segment>;
   chat?: Bus<ChatMessage>;
   signals?: Bus<Signal>;
+  resets?: Bus<{ roomId: string }>;
   /** Enables the dev-only replay endpoint. */
   dev?: boolean;
   /** When set, adding lines needs this value in the x-presenter-key header. Defaults to PRESENTER_KEY. */
   presenterKey?: string;
 }
 
-export async function buildServer({ store, bus = new Bus<Segment>(), chat = new Bus<ChatMessage>(), signals = new Bus<Signal>(), dev = false, presenterKey }: Deps) {
+export async function buildServer({ store, bus = new Bus<Segment>(), chat = new Bus<ChatMessage>(), signals = new Bus<Signal>(), resets = new Bus<{ roomId: string }>(), dev = false, presenterKey }: Deps) {
   const key = presenterKey ?? process.env.PRESENTER_KEY ?? "";
   const messages = new Map<string, ChatMessage[]>();
   const stats = new Map<string, { ai: number; lags: number[] }>();
@@ -200,12 +201,14 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
     const offLines = bus.subscribe(id, (seg) => res.write(`event: segment\ndata: ${JSON.stringify(seg)}\n\n`));
     const offChat = chat.subscribe(id, (msg) => res.write(`event: message\ndata: ${JSON.stringify(msg)}\n\n`));
     const offSignals = signals.subscribe(id, (sig) => res.write(`event: signal\ndata: ${JSON.stringify(sig)}\n\n`));
+    const offResets = resets.subscribe(id, (r) => res.write(`event: reset\ndata: ${JSON.stringify(r)}\n\n`));
     const beat = setInterval(() => res.write(": keep-alive\n\n"), 15000);
     req.raw.on("close", () => {
       clearInterval(beat);
       offLines();
       offChat();
       offSignals();
+      offResets();
     });
   });
 
@@ -280,6 +283,14 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
   });
 
   if (dev) {
+    // Demo only: clear a room's transcript, chat and numbers, and tell every viewer to clear their screen.
+    app.post<{ Params: { id: string } }>("/api/dev/reset/:id", { preHandler: presenterOnly }, async (req, reply) => {
+      await store.clear(req.params.id);
+      messages.delete(req.params.id);
+      stats.delete(req.params.id);
+      resets.publish(req.params.id, { roomId: req.params.id });
+      return reply.code(202).send({ ok: true });
+    });
     app.post<{ Params: { id: string }; Querystring: { everyMs?: string } }>("/api/dev/replay/:id", { preHandler: presenterOnly }, async (req, reply) => {
       const lines = SAMPLE_LINES[req.params.id];
       if (!lines) throw new NotFoundError(`no sample lines for ${req.params.id}`);

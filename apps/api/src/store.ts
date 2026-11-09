@@ -11,6 +11,8 @@ export interface Store {
   addSegment(roomId: string, input: NewSegment): Promise<Segment>;
   listSegments(roomId: string, q?: string): Promise<Segment[]>;
   search(roomId: string, q: string, limit?: number): Promise<Segment[]>;
+  /** Removes every line in a room (demo reset). */
+  clear(roomId: string): Promise<void>;
 }
 
 const STOP = new Set(["the", "and", "for", "are", "you", "when", "what", "where", "how", "who", "does", "did", "is", "it", "to", "of", "in", "at", "a", "an", "my", "i"]);
@@ -76,6 +78,11 @@ export class MemoryStore implements Store {
     if (!q) return [...list];
     const needle = q.toLowerCase();
     return list.filter((s) => s.text.toLowerCase().includes(needle));
+  }
+
+  async clear(roomId: string) {
+    if (!this.segs.has(roomId)) throw new NotFoundError(`room ${roomId} not found`);
+    this.segs.set(roomId, []);
   }
 
   async search(roomId: string, q: string, limit = 3) {
@@ -156,6 +163,12 @@ export class EsStore extends MemoryStore {
     const seg = this.newSegment(roomId, await this.nextSeq(roomId), input);
     await this.es.index({ index: this.index, id: seg.id, document: seg, refresh: "wait_for" });
     return seg;
+  }
+
+  override async clear(roomId: string) {
+    if (!this.rooms.has(roomId)) throw new NotFoundError(`room ${roomId} not found`);
+    await this.es.deleteByQuery({ index: this.index, query: { term: { roomId } }, refresh: true });
+    this.counters.set(roomId, 0);
   }
 
   override async listSegments(roomId: string, q?: string) {
