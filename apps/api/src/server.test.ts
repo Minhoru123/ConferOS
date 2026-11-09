@@ -94,3 +94,11 @@ describe("presenter access and caption metadata", () => {
     }
   });
 });
+
+describe("client errors", () => {
+  it("returns 400, not 500, for a malformed JSON body", async () => {
+    const app = await buildServer({ store: new MemoryStore(SEED_ROOMS), presenterKey: "" });
+    const res = await app.inject({ method: "POST", url: "/api/rooms/main/segments", headers: { "content-type": "application/json" }, payload: "{not json" });
+    expect(res.statusCode).toBe(400);
+  });
+});

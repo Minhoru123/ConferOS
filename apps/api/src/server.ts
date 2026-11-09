@@ -53,6 +53,8 @@ export async function buildServer({ store, bus = new Bus(), dev = false, present
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof NotFoundError) return reply.code(404).send({ error: err.message });
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "invalid request", issues: err.issues });
+    const status = (err as { statusCode?: number }).statusCode;
+    if (status && status >= 400 && status < 500) return reply.code(status).send({ error: (err as Error).message });
     app.log.error(err);
     return reply.code(500).send({ error: "internal error" });
   });

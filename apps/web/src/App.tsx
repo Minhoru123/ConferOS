@@ -33,8 +33,21 @@ export function App() {
     setAnswer(null);
     setPaused(false);
     setTerm("");
-    api.segments(roomId).then(setSegments).catch((e: Error) => setError(e.message));
-    return api.stream(roomId, (s) => setSegments((cur) => (cur.some((c) => c.id === s.id) ? cur : [...cur, s])));
+    let current = true;
+    const merge = (a: Segment[], b: Segment[]) => {
+      const byId = new Map<string, Segment>();
+      for (const s of [...a, ...b]) byId.set(s.id, s);
+      return [...byId.values()].sort((x, y) => x.seq - y.seq);
+    };
+    const stop = api.stream(roomId, (s) => current && setSegments((cur) => merge(cur, [s])));
+    api
+      .segments(roomId)
+      .then((list) => current && setSegments((cur) => merge(list, cur)))
+      .catch((e: Error) => current && setError(e.message));
+    return () => {
+      current = false;
+      stop();
+    };
   }, [roomId]);
 
   // While paused, the transcript stops at the line that was last when the pause began. New lines keep arriving behind it.

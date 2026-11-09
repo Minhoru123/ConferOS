@@ -66,16 +66,22 @@ export function Presenter({ roomId }: { roomId: string }) {
     api.config().then((c) => setKeyRequired(c.presenterKeyRequired)).catch(() => undefined);
   }, []);
 
-  function send(text: string, source: "mic" | "typed", lagMs?: number) {
+  function send(text: string, source: "mic" | "typed", lagMs?: number, room = roomRef.current) {
     api
-      .addLine(roomRef.current, { speaker: speakerRef.current.trim() || "Speaker", text, source, ...(lagMs !== undefined ? { lagMs } : {}) }, keyRef.current || undefined)
+      .addLine(room, { speaker: speakerRef.current.trim() || "Speaker", text, source, ...(lagMs !== undefined ? { lagMs } : {}) }, keyRef.current || undefined)
       .then(() => setSent((n) => n + 1))
       .catch((e: Error) => setError(e instanceof ApiError && e.status === 401 ? "The presenter key is missing or wrong." : `Could not send the line: ${e.message}`));
   }
 
   function stop() {
     wantRef.current = false;
-    recRef.current?.stop();
+    const rec = recRef.current;
+    if (rec) {
+      // Drop any final result the browser still delivers after stop, so it cannot land in another room.
+      rec.onresult = null;
+      rec.onend = null;
+    }
+    rec?.stop();
     recRef.current = null;
     setListening(false);
   }
@@ -88,6 +94,7 @@ export function Presenter({ roomId }: { roomId: string }) {
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = "en-US";
+    const room = roomRef.current;
     let lastInterim = 0;
     rec.onresult = (e) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -99,9 +106,9 @@ export function Presenter({ roomId }: { roomId: string }) {
         const text = r[0].transcript.trim();
         if (!text) continue;
         // Lag = how long after the last partial caption the final text arrived.
-        const lag = lastInterim ? Math.max(0, Date.now() - lastInterim) : 0;
+        const lag = lastInterim ? Math.min(120000, Math.max(0, Date.now() - lastInterim)) : 0;
         lastInterim = 0;
-        send(text, "mic", Math.round(lag));
+        send(text, "mic", Math.round(lag), room);
       }
     };
     rec.onerror = (e) => {
@@ -111,6 +118,7 @@ export function Presenter({ roomId }: { roomId: string }) {
     };
     // Browsers end a session after a while or after silence. Start another one while the presenter wants captions.
     rec.onend = () => {
+      lastInterim = 0;
       if (!wantRef.current) return setListening(false);
       setTimeout(() => {
         try {
