@@ -122,7 +122,8 @@ export function App() {
   const [speaking, setSpeaking] = useState(false);
   const [demoNote, setDemoNote] = useState("");
   const spokenRef = useRef("");
-  const audioQueue = useRef<string[]>([]);
+  const audioQueue = useRef<{ src: string; id: string }[]>([]);
+  const [progress, setProgress] = useState<{ id: string; p: number } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -194,42 +195,71 @@ export function App() {
     setLang(next);
     setLangNote("");
   }
+  // While the sample voice is speaking a line, show only the words said so far, in the chosen language.
+  const reveal = (s: Segment) => {
+    const full = text(s);
+    if (!voice || !progress || progress.id !== s.id || progress.p >= 1) return full;
+    const words = full.split(" ");
+    return words.slice(0, Math.max(1, Math.ceil(words.length * Math.min(1, progress.p * 1.08)))).join(" ");
+  };
   const text = (s: Segment) => (lang === "en" ? s.text : translated[`${lang}:${s.id}`] ?? s.text);
 
   const upToNow = paused ? segments.slice(0, frozen) : segments;
   const visible = term ? upToNow.filter((s) => text(s).toLowerCase().includes(term.toLowerCase()) || s.text.toLowerCase().includes(term.toLowerCase())) : upToNow;
-  const latest = upToNow.at(-1);
-  const previous = upToNow.at(-2);
+  // With the sample voice on, the stage shows the line being spoken, not simply the newest one.
+  const newest = upToNow.at(-1);
+  const spokenIdx = voice && progress ? upToNow.findIndex((x) => x.id === progress.id) : -1;
+  const latest = spokenIdx >= 0 ? upToNow[spokenIdx] : upToNow.at(-1);
+  const previous = spokenIdx >= 0 ? upToNow[spokenIdx - 1] : upToNow.at(-2);
   const missed = paused ? segments.length - frozen : 0;
   const { now, next } = nowAndNext(minutes);
 
   // Demo sample speaker: each sample line plays its pre-recorded neural voice; other lines fall back to the browser voice.
   function playNext() {
     if (audioRef.current) return;
-    const src = audioQueue.current.shift();
-    if (!src) return setSpeaking(false);
-    const a = new Audio(src);
+    const item = audioQueue.current.shift();
+    if (!item) return setSpeaking(false);
+    const a = new Audio(item.src);
     audioRef.current = a;
     setSpeaking(true);
+    setProgress({ id: item.id, p: 0 });
+    // Reveal the caption word by word as the voice speaks it.
+    a.ontimeupdate = () => a.duration && setProgress({ id: item.id, p: a.currentTime / a.duration });
     const done = () => {
+      setProgress({ id: item.id, p: 1 });
       audioRef.current = null;
       playNext();
     };
+    // If the browser blocks the audio, still reveal the words at a natural speaking pace (about 2.6 words a second).
+    const simulate = () => {
+      const words = Math.max(1, (segments.find((x) => x.id === item.id)?.text ?? "").split(" ").length);
+      const total = words * 380;
+      const t0 = Date.now();
+      const tick = setInterval(() => {
+        const p = (Date.now() - t0) / total;
+        setProgress({ id: item.id, p: Math.min(1, p) });
+        if (p >= 1) {
+          clearInterval(tick);
+          done();
+        }
+      }, 120);
+    };
     a.onended = done;
-    a.onerror = done;
-    a.play().catch(done);
+    a.onerror = simulate;
+    a.play().catch(simulate);
   }
   useEffect(() => {
-    if (!voice || !latest || spokenRef.current === latest.id) return;
-    spokenRef.current = latest.id;
-    const src = SAMPLE_VOICE[latest.text];
+    if (!voice || !newest || spokenRef.current === newest.id) return;
+    spokenRef.current = newest.id;
+    const src = SAMPLE_VOICE[newest.text];
     if (src) {
-      audioQueue.current.push(src);
+      setProgress({ id: newest.id, p: 0 });
+      audioQueue.current.push({ src, id: newest.id });
       playNext();
       return;
     }
     if (!("speechSynthesis" in window)) return;
-    const u = new SpeechSynthesisUtterance(latest.text);
+    const u = new SpeechSynthesisUtterance(newest.text);
     u.lang = "en-US";
     const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.startsWith("en"));
     const prefer = [/premium/i, /enhanced/i, /natural/i, /neural/i, /siri/i, /Google US English/i, /Samantha/i, /Ava/i, /Daniel/i];
@@ -238,7 +268,7 @@ export function App() {
     u.onstart = () => setSpeaking(true);
     u.onend = () => setSpeaking(false);
     window.speechSynthesis.speak(u);
-  }, [voice, latest]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [voice, newest]); // eslint-disable-line react-hooks/exhaustive-deps
   // Voices load asynchronously in some browsers; ask early so the first line does not use the fallback voice.
   useEffect(() => {
     if ("speechSynthesis" in window) window.speechSynthesis.getVoices();
@@ -529,9 +559,9 @@ export function App() {
           {error && <p role="alert" className="rounded-xl border border-border bg-muted p-3">Something went wrong: {error}</p>}
 
           {!calm && room && (voice && view === "participant" && room.id === "main" ? (
-            <SampleSpeaker speaking={speaking} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />
+            <SampleSpeaker speaking={speaking} caption={latest ? reveal(latest) : ""} speaker={latest?.speaker} />
           ) : (
-            <AVPanel key={`${room.id}-${view}`} room={room} code={code} organizer={view === "organizer"} caption={latest ? text(latest) : ""} speaker={latest?.speaker} />
+            <AVPanel key={`${room.id}-${view}`} room={room} code={code} organizer={view === "organizer"} caption={latest ? reveal(latest) : ""} speaker={latest?.speaker} />
           ))}
 
           <div className="relative">
@@ -548,7 +578,7 @@ export function App() {
               <div aria-hidden="true" className="rounded-2xl bg-[#080c14] px-4 py-3 text-[#ffffff]">
                 <span className="font-mono block text-[0.72rem] uppercase tracking-[0.12em] text-[#ffd84d]">{latest ? latest.speaker : "Waiting for the speaker"}</span>
                 <p lang={lang} className="text-[#ffffff]" style={{ fontSize: `calc(${calm ? 2 : 1.5}rem * var(--scale))`, lineHeight: 1.35 }}>
-                  {latest ? text(latest) : "Captions appear here as soon as someone speaks."}
+                  {latest ? reveal(latest) : "Captions appear here as soon as someone speaks."}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -578,7 +608,12 @@ export function App() {
 
           {view === "organizer" && !calm && <Insights roomId={roomId} code={code} />}
 
-          {signsStarted && <SignAvatar roomId={roomId} code={code} on={signsOn} />}
+          {signsStarted && (
+            <div className="relative">
+              {signsOn && <TrackTag track="Merge Forward" label="sign language avatar (experimental)" className="-top-9 right-4" />}
+              <SignAvatar roomId={roomId} code={code} on={signsOn} />
+            </div>
+          )}
 
           {view === "organizer" && !calm && (
             <section aria-labelledby="org-h" className="rounded-2xl border border-border bg-card">
@@ -593,7 +628,7 @@ export function App() {
               {upToNow.slice(-3).map((s) => (
                 <li key={s.id} lang={lang} className="rounded-2xl border border-border bg-card p-4" style={{ fontSize: "calc(1.35rem * var(--scale))" }}>
                   <span className="font-mono block text-xs uppercase tracking-wide text-muted-foreground">{clock(s.ts)} · {s.speaker}</span>
-                  {text(s)}
+                  {reveal(s)}
                 </li>
               ))}
             </ol>
@@ -645,7 +680,7 @@ export function App() {
                     <time className="font-mono whitespace-nowrap pt-1 text-xs text-muted-foreground">{clock(s.ts)}</time>
                     <p lang={lang} style={{ fontSize: "calc(1.02rem * var(--scale))", lineHeight: 1.5 }}>
                       <span className="font-mono block text-[0.7rem] uppercase tracking-wide text-muted-foreground">{s.speaker}</span>
-                      {text(s)}
+                      {reveal(s)}
                     </p>
                   </div>
                 ))}

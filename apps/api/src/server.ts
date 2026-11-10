@@ -345,8 +345,15 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
   });
 
   if (dev) {
+    // Pending sample-talk lines per room, so a reset or a new replay cancels the old one.
+    const replays = new Map<string, ReturnType<typeof setTimeout>[]>();
+    const cancelReplay = (id: string) => {
+      (replays.get(id) ?? []).forEach(clearTimeout);
+      replays.delete(id);
+    };
     // Demo only: clear a room's transcript, chat and numbers, and tell every viewer to clear their screen.
     app.post<{ Params: { id: string } }>("/api/dev/reset/:id", { preHandler: presenterOnly }, async (req, reply) => {
+      cancelReplay(req.params.id);
       await store.clear(req.params.id);
       messages.delete(req.params.id);
       stats.delete(req.params.id);
@@ -357,8 +364,8 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
       const lines = SAMPLE_LINES[req.params.id];
       if (!lines) throw new NotFoundError(`no sample lines for ${req.params.id}`);
       const every = Math.max(200, Number(req.query.everyMs ?? 3000));
-      lines.forEach((l, i) => {
-        setTimeout(() => {
+      cancelReplay(req.params.id);
+      replays.set(req.params.id, lines.map((l, i) => setTimeout(() => {
           store
             .addSegment(req.params.id, l)
             .then((seg) => {
@@ -366,8 +373,7 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
               signers?.add(req.params.id, seg.id, seg.text, true);
             })
             .catch((e) => app.log.error(e));
-        }, i * every);
-      });
+        }, i * every)));
       return reply.code(202).send({ queued: lines.length, everyMs: every });
     });
   }
