@@ -17,6 +17,7 @@ Architecture board: https://www.figma.com/board/c9XDkwm2grU3XOgref2hE4/ConferOS
 - **Meet people.** Focus groups are open rooms around a topic. Team zones are private rooms you join with a code, for people with aligned interests to build together.
 - **Catch up without stress.** Pause the captions without losing your place, jump back to live, search what was said, or switch to captions only.
 - **Know what is next.** A Now and Next strip, today's agenda, and a countdown to the submission deadline, tailored to the Cloud Native Hackathon.
+- **Try the signing avatar (experimental).** A 3D avatar signs each caption line. See [Signing avatar](#signing-avatar-experimental) for its limits.
 - **Light or dark.** Light by default, dark with one click.
 - **Organizer view.** Caption a room from the microphone, type announcements, and go live on camera. Participant view hides all of that.
 
@@ -32,26 +33,34 @@ docker compose --profile app up --build
 
 Open http://localhost:8090 in Chrome. The first start takes a minute while Elasticsearch boots.
 
-1. Switch to **Organizer view**, press **Start captions from microphone** under Organizer tools, and talk. Or press **Replay sample talk**.
-2. Press **Start camera** to see yourself live with captions on the video.
+1. Switch to **Organizer view**, press **Start captions from microphone** under Organizer tools, and talk. Or press **play sample talk with voice** in the demo controls (bottom left).
+2. Press **Go live** to stream your camera to the room.
 3. Switch to **Participant view** in another window. Captions and the transcript arrive live.
 4. Open **Chat** and send `@ai when is lunch?`.
 5. Pick **Español** in the language menu.
 6. Under **Start or join a room**, create a team zone, copy its join code, and join it from another window.
+7. Press **Sign language avatar** under the captions. It can take 30 seconds to load the first time, and it needs internet and this tab on screen. It signs the lines said after that.
 
 ## Demo controls
 
-A small dock in the bottom-left corner, styled like a developer toolbar, holds things that exist only for the demo: switching between Participant and Organizer view, playing a sample talk read aloud by a neural voice (pre-recorded with Microsoft Edge's online text to speech, voice en-US-AndrewNeural, in `apps/web/public/voice`), a **speak into the mic** button so judges can talk and watch their own words become captions (translated, searchable and answerable by the AI), loading or resetting the room's transcript, one-click chatbot scenarios (including a question that was never said, to show the AI does not guess), and showing or hiding tags that point at the part of the screen each hackathon track powers. In production, people sign in with their role and the dock is not there.
+A small dock in the bottom-left corner holds things that exist only for the demo. In production, people sign in with their role and the dock is not there.
+
+- Switch between Participant and Organizer view.
+- Play a sample talk read aloud by a neural voice (pre-recorded with Microsoft Edge's online text to speech, voice en-US-AndrewNeural, in `apps/web/public/voice`).
+- **Speak into the mic**, so judges can watch their own words become captions that are translated, searchable and answerable by the AI.
+- Load or reset the room's transcript.
+- Run one-click chatbot scenarios, including a question that was never said, to show the AI does not guess.
+- Show or hide the tags that point at the part of the screen each hackathon track powers.
 
 ## Hackathon tracks
 
 | Track | How Backchannel uses it today | How it makes Backchannel better next |
 | --- | --- | --- |
 | Elasticsearch | Stores and searches every room's transcript. The AI chat answers from what Elasticsearch finds. | Hybrid keyword and vector search across every room and day, so "@ai where did someone explain tracing?" finds the right talk. |
-| Dash0 | OpenTelemetry traces for every request, spans for line ingest and AI answers, and a caption lag metric. | A caption-lag SLO per room, with Agent0 telling organizers when captions fall behind before attendees notice. |
-| Sonar (Gitar) | Every change landed through pull requests reviewed by Gitar. Its findings were fixed in the same pull requests. | Project rules for accessibility and privacy, so reviews catch regressions in captions or contrast. |
+| Dash0 | OpenTelemetry spans for line ingest, AI answers and translation, plus metrics for lines added, caption lag and AI questions. | A caption-lag SLO per room, with Agent0 telling organizers when captions fall behind before attendees notice. |
+| Sonar (Gitar) | Every change landed through pull requests reviewed by Gitar. We fixed many of its findings; some near the deadline are still open. | Project rules for accessibility and privacy, so reviews catch regressions in captions or contrast. |
 | Radar | Kubernetes manifests and a kind config, ready for a Radar-connected cluster. | Radar's AI investigations on the live event cluster, so a crashing captions pod is diagnosed during the talk, not after. |
-| Merge Forward | Captions, translation, pause and catch up, captions-only layout, keyboard and screen reader support. | Sign language avatars and plain-language summaries for each talk. |
+| Merge Forward | Captions, translation, pause and catch up, captions-only layout, keyboard and screen reader support, and an experimental signing avatar. | Sign output reviewed by Deaf signers, and plain-language summaries for each talk. |
 
 ## How it works
 
@@ -80,7 +89,11 @@ npm install
 npm run dev
 ```
 
+Run `npm install` again after every pull, because dependencies change.
+
 The web app runs at http://localhost:5173 and the API at http://localhost:8787. Without `ELASTICSEARCH_URL` the API keeps lines in memory.
+
+Keys are optional. Copy `.env.example` to `.env` to add them.
 
 ```bash
 npm run typecheck
@@ -124,13 +137,13 @@ Traces appear under the service `backchannel-api`. Never commit the token.
 - Translation uses the free MyMemory service, so transcript lines are sent to it, and it has a daily quota.
 - Microphone captions need Chrome or Edge. Captions and the camera need localhost or HTTPS.
 - Live updates and chat are fanned out inside one API process, so the API runs as one replica. A large event needs shared fan-out such as Redis pub/sub.
-- The AI answers with the best matching line from the transcript. Generated answers and summaries are next.
+- The AI answers with the best matching line from the transcript. With `OPENAI_API_KEY` set, it writes a short answer from the retrieved lines instead. Summaries are next.
 
 ## Signing avatar (experimental)
 
 Press **Sign language avatar** on the caption stage and each transcript line is also signed in the browser. The API only translates while someone has the avatar on.
 
-- Claude picks which signs to use from a fixed vocabulary of 833 signs and cannot invent movements. Without `ANTHROPIC_API_KEY`, the avatar signs word by word.
+- A language model picks which signs to use from a fixed vocabulary of 833 signs and cannot invent movements. It uses Claude when `ANTHROPIC_API_KEY` is set, otherwise OpenAI when `OPENAI_API_KEY` is set. With neither, the avatar signs word by word.
 - **This is not American Sign Language.** The vocabulary mixes signs from several sign languages (ISL, BSL, Auslan), and no signers have reviewed the output. It is a technical experiment and does not replace an interpreter.
 - Credits: the sign vocabulary comes from Avatar-Generator-FYP (MIT). The avatar is CWASA from the University of East Anglia (CC BY-NC-ND), loaded unmodified from its own server.
 - Prior work: the translator, lexicon loader and avatar player were adapted from TalkLens, a project written before this hackathon.

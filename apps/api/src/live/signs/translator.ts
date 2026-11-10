@@ -12,6 +12,13 @@ export interface SignTranslation {
 }
 
 /** Returns glosses, or null when the model has no usable answer. */
+export const GLOSS_SCHEMA = {
+  type: "object",
+  properties: { glosses: { type: "array", items: { type: "string" } } },
+  required: ["glosses"],
+  additionalProperties: false,
+};
+
 export type GlossModel = (system: string, sentence: string, signal: AbortSignal) => Promise<string[] | null>;
 
 const MAX_CHARS = 300;

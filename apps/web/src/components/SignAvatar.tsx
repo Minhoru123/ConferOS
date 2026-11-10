@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, type SignItem } from "../api";
 import { createPlayer, loadAvatar, type SignPlayer } from "../live/signAvatar";
 
-type Status = "loading" | "ready" | "failed";
+type Status = "loading" | "slow" | "ready" | "failed";
 
 /** Stays mounted once it has been turned on, because the avatar can only be started once per page. */
 export function SignAvatar({ roomId, code, on }: { roomId: string; code?: string; on: boolean }) {
@@ -10,19 +10,33 @@ export function SignAvatar({ roomId, code, on }: { roomId: string; code?: string
   const [current, setCurrent] = useState<SignItem | null>(null);
   const [skipped, setSkipped] = useState(false);
   const player = useRef<SignPlayer | null>(null);
+  // Lines said while the avatar loads, which can take 20 seconds or more. Only the newest are worth signing late.
+  const waiting = useRef<SignItem[]>([]);
 
   useEffect(() => {
+    // The avatar only finishes loading while its tab is on screen, so a slow start is not a failure.
+    const slow = setTimeout(() => setStatus((s) => (s === "loading" ? "slow" : s)), 30000);
     loadAvatar()
       .then(() => {
         player.current ??= createPlayer({ onSay: setCurrent, onSkip: () => setSkipped(true) });
+        waiting.current.splice(0).forEach((item) => player.current?.say(item));
         setStatus("ready");
       })
-      .catch(() => setStatus("failed"));
+      .catch(() => setStatus("failed"))
+      .finally(() => clearTimeout(slow));
+    return () => clearTimeout(slow);
   }, []);
 
   useEffect(() => {
     if (!on) return;
-    return api.signs(roomId, code, (item) => player.current?.say(item));
+    return api.signs(roomId, code, (item) => {
+      if (player.current) {
+        player.current.say(item);
+        return;
+      }
+      waiting.current.push(item);
+      if (waiting.current.length > 3) waiting.current.shift();
+    });
   }, [roomId, code, on]);
 
   return (
@@ -31,6 +45,7 @@ export function SignAvatar({ roomId, code, on }: { roomId: string; code?: string
       <div className="CWASAAvatar av0 mx-auto h-72 w-72 max-w-full" />
       <p role="status" className="pt-2 text-sm">
         {status === "loading" && "Loading the avatar."}
+        {status === "slow" && "Still loading the avatar. Keep this tab on screen."}
         {status === "failed" && "The avatar could not load. It needs internet."}
       </p>
       <p className="pt-2 text-sm text-muted-foreground">
