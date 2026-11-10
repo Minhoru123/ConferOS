@@ -559,9 +559,9 @@ export function App() {
           {error && <p role="alert" className="rounded-xl border border-border bg-muted p-3">Something went wrong: {error}</p>}
 
           {!calm && room && (voice && view === "participant" && room.id === "main" ? (
-            <SampleSpeaker speaking={speaking} caption={latest ? reveal(latest) : ""} speaker={latest?.speaker} />
+            <SampleSpeaker speaking={speaking} caption="" speaker={latest?.speaker} />
           ) : (
-            <AVPanel key={`${room.id}-${view}`} room={room} code={code} organizer={view === "organizer"} caption={latest ? reveal(latest) : ""} speaker={latest?.speaker} />
+            <AVPanel key={`${room.id}-${view}`} room={room} code={code} organizer={view === "organizer"} caption="" speaker={latest?.speaker} />
           ))}
 
           <div className="relative">
@@ -573,8 +573,8 @@ export function App() {
               </span>
               <span className="inline-flex items-center gap-2"><ScrollText size={16} aria-hidden="true" />{segments.length} lines so far</span>
             </div>
-            <div className={`flex flex-col justify-end gap-3 px-5 pb-5 pt-8 ${calm ? "min-h-[46vh]" : "min-h-[220px] lg:min-h-[280px]"}`}>
-              {previous && !calm && <p lang={lang} className="text-[#a3b0c5]" style={{ fontSize: "calc(1.05rem * var(--scale))" }}>{text(previous)}</p>}
+            <div className={`flex flex-col justify-end gap-3 px-5 pb-5 ${calm ? "min-h-[46vh] pt-8" : "pt-3"}`}>
+              {previous && calm && <p lang={lang} className="text-[#a3b0c5]" style={{ fontSize: "calc(1.05rem * var(--scale))" }}>{text(previous)}</p>}
               <div aria-hidden="true" className="rounded-2xl bg-[#080c14] px-4 py-3 text-[#ffffff]">
                 <span className="font-mono block text-[0.72rem] uppercase tracking-[0.12em] text-[#ffd84d]">{latest ? latest.speaker : "Waiting for the speaker"}</span>
                 <p lang={lang} className="text-[#ffffff]" style={{ fontSize: `calc(${calm ? 2 : 1.5}rem * var(--scale))`, lineHeight: 1.35 }}>
