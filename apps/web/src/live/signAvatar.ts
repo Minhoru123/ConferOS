@@ -10,7 +10,6 @@ declare const CWASA: Cwasa;
 // CWASA runs unmodified from its home at the University of East Anglia, as its terms ask,
 // so it is only loaded when someone turns the avatar on, and it needs internet.
 const HOST = "https://vhg.cmp.uea.ac.uk/tech/jas/vhg2025a/cwa";
-const LOAD_TIMEOUT_MS = 60000;
 const IDLE_TIMEOUT_MS = 20000;
 const MAX_QUEUED = 3;
 
@@ -19,7 +18,6 @@ let loading: Promise<void> | null = null;
 export function loadAvatar(): Promise<void> {
   if (loading) return loading;
   loading = new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timeout")), LOAD_TIMEOUT_MS);
     const css = document.createElement("link");
     css.rel = "stylesheet";
     css.href = `${HOST}/cwasa.css`;
@@ -28,14 +26,12 @@ export function loadAvatar(): Promise<void> {
     const script = document.createElement("script");
     script.src = `${HOST}/allcsa.js`;
     script.onerror = () => {
-      clearTimeout(timer);
       reject(new Error("script"));
     };
     script.onload = () => {
       CWASA.addHook(
         "avatarready",
         () => {
-          clearTimeout(timer);
           resolve();
         },
         0,
