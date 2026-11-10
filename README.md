@@ -11,6 +11,7 @@ Architecture board: https://www.figma.com/board/c9XDkwm2grU3XOgref2hE4/ConferOS
 ## What you can do
 
 - **Follow any room live.** The main room, focus groups and team zones each have live captions and a transcript that every attendee sees on their own screen.
+- **Catch up with the AI.** `@ai summarize what I missed` gives a short recap of the room so far. With a local Llama (Ollama, `OLLAMA_URL` and `OLLAMA_MODEL`) or an OpenAI key, answers and summaries are written by the model from the transcript only; without one, the AI quotes the matching lines.
 - **Ask the AI in chat.** Start a chat message with `@ai`, for example `@ai when is lunch?`. It answers only from what was said in that room and shows when it was said. If it was not said, it says so instead of guessing.
 - **Read it in your language.** Pick a language and captions and the transcript translate as they arrive, so people whose first language is not English, or who cannot hear the speaker, can follow along.
 - **See and hear the stage.** In Organizer view, **Go live** streams the organizer's camera and microphone to every participant in the room (WebRTC), with captions in each viewer's language on top. Each room also has a group call for face-to-face talk.

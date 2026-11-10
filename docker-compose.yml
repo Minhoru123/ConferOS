@@ -19,6 +19,9 @@ services:
     environment:
       - ELASTICSEARCH_URL=http://elasticsearch:9200
       - NODE_ENV=development
+      # Local Llama through Ollama on the host, for AI answers and summaries. Remove to quote the transcript instead.
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=llama3.2
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     ports:

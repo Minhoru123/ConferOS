@@ -43,6 +43,7 @@ export interface ChatMessage {
   ts: string;
   bot?: boolean;
   citations?: Citation[];
+  via?: string;
 }
 
 export interface Signal {
