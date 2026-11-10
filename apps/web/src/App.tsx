@@ -195,102 +195,81 @@ export function App() {
     setLang(next);
     setLangNote("");
   }
-  // While the sample voice is speaking a line, show only the words said so far, in the chosen language.
-  const reveal = (s: Segment) => {
-    const full = text(s);
-    if (!voice || !progress || progress.id !== s.id || progress.p >= 1) return full;
-    const words = full.split(" ");
-    // Trail the voice slightly, so a word never shows before it is heard.
-    // Hold back the first third of the sentence, then trail the voice; the line completes only when the audio ends.
-    const p = Math.max(0, (progress.p - 0.35) / 0.65) * 0.8;
-    const n = Math.floor(words.length * Math.min(1, p));
-    return n ? `${words.slice(0, n).join(" ")}…` : "…";
-  };
   const text = (s: Segment) => (lang === "en" ? s.text : translated[`${lang}:${s.id}`] ?? s.text);
+  const reveal = (s: Segment) => text(s);
 
   const upToNow = paused ? segments.slice(0, frozen) : segments;
-  // In the transcript, a sample line appears only after the voice has finished saying it, like a real transcriber.
-  const speakingSeg = voice && progress ? upToNow.find((x) => x.id === progress.id) : undefined;
-  const heard = speakingSeg ? upToNow.filter((x) => x.seq < speakingSeg.seq || (x.seq === speakingSeg.seq && progress!.p >= 1)) : upToNow;
-  const visible = term ? heard.filter((s) => text(s).toLowerCase().includes(term.toLowerCase()) || s.text.toLowerCase().includes(term.toLowerCase())) : heard;
-  // With the sample voice on, the stage shows the line being spoken, not simply the newest one.
-  const newest = upToNow.at(-1);
-  const spokenIdx = voice && progress ? upToNow.findIndex((x) => x.id === progress.id) : -1;
-  const latest = spokenIdx >= 0 ? upToNow[spokenIdx] : upToNow.at(-1);
-  const previous = spokenIdx >= 0 ? upToNow[spokenIdx - 1] : upToNow.at(-2);
+  const visible = term ? upToNow.filter((s) => text(s).toLowerCase().includes(term.toLowerCase()) || s.text.toLowerCase().includes(term.toLowerCase())) : upToNow;
+  const latest = upToNow.at(-1);
+  const previous = upToNow.at(-2);
   const missed = paused ? segments.length - frozen : 0;
   const { now, next } = nowAndNext(minutes);
 
-  // Demo sample speaker: each sample line plays its pre-recorded neural voice; other lines fall back to the browser voice.
-  function playNext() {
-    if (audioRef.current) return;
-    const item = audioQueue.current.shift();
-    if (!item) return setSpeaking(false);
-    const a = new Audio(item.src);
-    audioRef.current = a;
-    setSpeaking(true);
-    setProgress({ id: item.id, p: 0 });
-    // Reveal the caption word by word as the voice speaks it.
-    a.ontimeupdate = () => a.duration && setProgress({ id: item.id, p: a.currentTime / a.duration });
-    const done = () => {
-      setProgress({ id: item.id, p: 1 });
-      audioRef.current = null;
-      playNext();
-    };
-    // If the browser blocks the audio, still reveal the words at a natural speaking pace (about 2.6 words a second).
-    const simulate = () => {
-      const words = Math.max(1, (segments.find((x) => x.id === item.id)?.text ?? "").split(" ").length);
-      const total = words * 380;
-      const t0 = Date.now();
-      const tick = setInterval(() => {
-        const p = (Date.now() - t0) / total;
-        setProgress({ id: item.id, p: Math.min(1, p) });
-        if (p >= 1) {
-          clearInterval(tick);
-          done();
-        }
-      }, 120);
-    };
-    a.onended = done;
-    a.onerror = simulate;
-    a.play().catch(simulate);
-  }
-  useEffect(() => {
-    if (!voice || !newest || spokenRef.current === newest.id) return;
-    spokenRef.current = newest.id;
-    const src = SAMPLE_VOICE[newest.text];
-    if (src) {
-      setProgress({ id: newest.id, p: 0 });
-      audioQueue.current.push({ src, id: newest.id });
-      playNext();
-      return;
-    }
-    if (!("speechSynthesis" in window)) return;
-    const u = new SpeechSynthesisUtterance(newest.text);
-    u.lang = "en-US";
-    const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.startsWith("en"));
-    const prefer = [/premium/i, /enhanced/i, /natural/i, /neural/i, /siri/i, /Google US English/i, /Samantha/i, /Ava/i, /Daniel/i];
-    const best = prefer.map((re) => voices.find((v) => re.test(v.name))).find(Boolean) ?? voices.find((v) => v.lang === "en-US");
-    if (best) u.voice = best;
-    u.onstart = () => setSpeaking(true);
-    u.onend = () => setSpeaking(false);
-    window.speechSynthesis.speak(u);
-  }, [voice, newest]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Scripted sample talk, played by this tab. Each sentence is posted to the room only after the voice has said it, so
+  // every screen gets it when a real transcriber would finalize it. Meanwhile this tab's caption trails the voice.
+  const [pending, setPending] = useState<{ text: string; p: number } | null>(null);
+  const sampleRun = useRef(0);
+  const partial = (x: { text: string; p: number }) => {
+    const words = x.text.split(" ");
+    const p = Math.max(0, (x.p - 0.35) / 0.65) * 0.8;
+    const n = Math.floor(words.length * Math.min(1, p));
+    return n ? `${words.slice(0, n).join(" ")}…` : "…";
+  };
+  const pendingCaption = pending ? (lang === "en" ? partial(pending) : "…") : null;
   // Voices load asynchronously in some browsers; ask early so the first line does not use the fallback voice.
   useEffect(() => {
     if ("speechSynthesis" in window) window.speechSynthesis.getVoices();
   }, []);
+  const key = () => sessionStorage.getItem("presenterKey") ?? undefined;
   function startSample() {
-    spokenRef.current = latest?.id ?? "";
+    const run = ++sampleRun.current;
     setVoice(true);
     setView("participant");
     setRoomId("main");
-    api
-      .replay("main", sessionStorage.getItem("presenterKey") ?? undefined, 7600)
-      .then((r) => setDemoNote(`Sample speaker is reading ${r.queued} lines on the Main stage.`))
-      .catch((e: Error) => setDemoNote(`Could not start the sample: ${e.message}`));
+    const lines = Object.entries(SAMPLE_VOICE);
+    setDemoNote(`Sample speaker is reading ${lines.length} lines on the Main stage.`);
+    const say = (i: number) => {
+      if (run !== sampleRun.current) return;
+      if (i >= lines.length) {
+        setPending(null);
+        setSpeaking(false);
+        return;
+      }
+      const [line, src] = lines[i]!;
+      const a = new Audio(src);
+      audioRef.current = a;
+      setSpeaking(true);
+      setPending({ text: line, p: 0 });
+      let finished = false;
+      const finish = () => {
+        if (finished || run !== sampleRun.current) return;
+        finished = true;
+        setPending(null);
+        setSpeaking(false);
+        api.addLine("main", { speaker: "Organizer", text: line, source: "typed" }, key()).catch(() => undefined);
+        setTimeout(() => say(i + 1), 900);
+      };
+      a.ontimeupdate = () => a.duration && run === sampleRun.current && setPending({ text: line, p: a.currentTime / a.duration });
+      a.onended = finish;
+      // If the browser blocks the audio, keep a natural speaking pace (about 2.6 words a second).
+      const simulate = () => {
+        const total = line.split(" ").length * 380;
+        const t0 = Date.now();
+        const tick = setInterval(() => {
+          if (run !== sampleRun.current) return clearInterval(tick);
+          const p = (Date.now() - t0) / total;
+          setPending({ text: line, p: Math.min(1, p) });
+          if (p >= 1) {
+            clearInterval(tick);
+            finish();
+          }
+        }, 120);
+      };
+      a.onerror = simulate;
+      a.play().catch(simulate);
+    };
+    say(0);
   }
-  const key = () => sessionStorage.getItem("presenterKey") ?? undefined;
   function resetRoom() {
     stopSample();
     api
@@ -310,10 +289,11 @@ export function App() {
     api.sendMessage(roomId, me, `@ai ${q}`, code).catch((e: Error) => setDemoNote(`Could not send: ${e.message}`));
   }
   function stopSample() {
+    sampleRun.current++;
+    setPending(null);
     setVoice(false);
     setSpeaking(false);
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-    audioQueue.current = [];
     audioRef.current?.pause();
     audioRef.current = null;
     setDemoNote("");
@@ -583,9 +563,9 @@ export function App() {
             <div className={`flex flex-col justify-end gap-3 px-5 pb-5 ${calm ? "min-h-[46vh] pt-8" : "pt-3"}`}>
               {previous && calm && <p lang={lang} className="text-[#a3b0c5]" style={{ fontSize: "calc(1.05rem * var(--scale))" }}>{text(previous)}</p>}
               <div aria-hidden="true" className="rounded-2xl bg-[#080c14] px-4 py-3 text-[#ffffff]">
-                <span className="font-mono block text-[0.72rem] uppercase tracking-[0.12em] text-[#ffd84d]">{latest ? latest.speaker : "Waiting for the speaker"}</span>
+                <span className="font-mono block text-[0.72rem] uppercase tracking-[0.12em] text-[#ffd84d]">{pendingCaption ? "Organizer" : latest ? latest.speaker : "Waiting for the speaker"}</span>
                 <p lang={lang} className="text-[#ffffff]" style={{ fontSize: `calc(${calm ? 2 : 1.5}rem * var(--scale))`, lineHeight: 1.35 }}>
-                  {latest ? reveal(latest) : "Captions appear here as soon as someone speaks."}
+                  {pendingCaption ?? (latest ? reveal(latest) : "Captions appear here as soon as someone speaks.")}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
