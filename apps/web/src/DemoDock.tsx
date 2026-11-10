@@ -1,5 +1,6 @@
 import { Bot, ChevronDown, FileText, FlaskConical, Megaphone, Mic, MicOff, PlayCircle, RotateCcw, Square, Tags, Users } from "lucide-react";
 import { useMicCaptions } from "./useMicCaptions";
+import { SAMPLE_VOICE } from "./sampleVoice";
 import { useState } from "react";
 
 export type View = "participant" | "organizer";
@@ -34,7 +35,30 @@ export function DemoDock(p: {
   code?: string;
   note: string;
 }) {
-  const mic = useMicCaptions(p.roomId, p.code, "Judge");
+  const [micSpeaker, setMicSpeaker] = useState("Judge");
+  const mic = useMicCaptions(p.roomId, p.code, micSpeaker);
+  const [aloud, setAloud] = useState<HTMLAudioElement | null>(null);
+  // Real transcription of the sample: play the talk out loud and let the real speech engine hear it through the mic.
+  function playAloud() {
+    const files = Object.values(SAMPLE_VOICE);
+    setMicSpeaker("Organizer");
+    if (!mic.listening) setTimeout(() => mic.start(), 0);
+    let i = 0;
+    const next = () => {
+      if (i >= files.length) return setAloud(null);
+      const a = new Audio(files[i++]);
+      setAloud(a);
+      a.onended = () => setTimeout(next, 900);
+      a.play().catch(() => setAloud(null));
+    };
+    setTimeout(next, 1200);
+  }
+  function stopAloud() {
+    aloud?.pause();
+    setAloud(null);
+    mic.stop();
+    setMicSpeaker("Judge");
+  }
   const [open, setOpen] = useState(true);
   const mono = "font-mono text-[0.78rem]";
   const btn = `${mono} inline-flex min-h-10 items-center gap-2 rounded-md border border-[#3a3a3a] px-3 text-[#e5e5e5] hover:border-[#ffd84d]`;
@@ -89,7 +113,13 @@ export function DemoDock(p: {
           {!mic.supported ? "needs Chrome or Edge" : mic.listening ? `listening · ${mic.sent} lines as "Judge"` : "your words become captions, translated live"}
         </p>
         {mic.error && <p role="alert" className={`${mono} text-[#ff8f7c]`}>{mic.error}</p>}
-        <span className={`${mono} pt-1 text-[#a3a3a3]`}>sample speaker</span>
+        {aloud ? (
+          <button className={`${btn} border-[#ff8f7c] bg-[#c2331f] text-white`} onClick={stopAloud}><Square size={15} aria-hidden="true" /> stop the talk and the mic</button>
+        ) : (
+          <button className={btn} disabled={!mic.supported} onClick={playAloud}><PlayCircle size={15} aria-hidden="true" /> play talk aloud, transcribe it live</button>
+        )}
+        <p className={`${mono} text-[#a3a3a3]`}>real speech recognition hears the speakers. turn the volume up.</p>
+        <span className={`${mono} pt-1 text-[#a3a3a3]`}>scripted sample (fallback)</span>
         {p.sampleOn ? (
           <button className={btn} onClick={p.onStopSample}><Square size={15} aria-hidden="true" /> stop sample speaker</button>
         ) : (

@@ -38,11 +38,13 @@ export function useMicCaptions(roomId: string, code: string | undefined, speaker
   const flushRef = useRef<(() => void) | null>(null);
   const roomRef = useRef(roomId);
   roomRef.current = roomId;
+  const speakerRef = useRef(speaker);
+  speakerRef.current = speaker;
   const supported = Boolean(ctor());
 
   function post(room: string, text: string, lagMs: number) {
     api
-      .addLine(room, { speaker, text, source: "mic", lagMs }, sessionStorage.getItem("presenterKey") ?? undefined, code)
+      .addLine(room, { speaker: speakerRef.current, text, source: "mic", lagMs }, sessionStorage.getItem("presenterKey") ?? undefined, code)
       .then(() => setSent((n) => n + 1))
       .catch((e: Error) => setError(e instanceof ApiError && e.status === 401 ? "The presenter key is missing or wrong." : `Could not send the line: ${e.message}`));
   }
