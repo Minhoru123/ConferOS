@@ -28,7 +28,7 @@ spec:
           # Create this Secret with the OTLP endpoint and auth header (see README). Optional so the app runs without it.
           envFrom:
             - secretRef: { name: otel, optional: true }
-            # ANTHROPIC_API_KEY for the signing avatar. Without it, signs go word by word.
+            # ANTHROPIC_API_KEY or OPENAI_API_KEY for the signing avatar. Without one, signs go word by word.
             - secretRef: { name: signs, optional: true }
             # Secret "presenter" with PRESENTER_KEY: when set, only the presenter page can add transcript lines.
             - secretRef: { name: presenter, optional: true }

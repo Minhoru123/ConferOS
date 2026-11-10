@@ -1,18 +1,13 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { GlossModel } from "./translator.js";
-
-const SCHEMA = {
-  type: "object",
-  properties: { glosses: { type: "array", items: { type: "string" } } },
-  required: ["glosses"],
-  additionalProperties: false,
-};
+import { GLOSS_SCHEMA } from "./translator.js";
 
 export function claudeGlossModel(model: string): GlossModel {
-  const client = new Anthropic();
+  // Loaded on first use, so a machine without this package or a key can still start the API.
+  let client: Promise<import("@anthropic-ai/sdk").default> | undefined;
 
   return async (system, sentence, signal) => {
-    const response = await client.beta.messages.create(
+    client ??= import("@anthropic-ai/sdk").then(({ default: Anthropic }) => new Anthropic());
+    const response = await (await client).beta.messages.create(
       {
         model,
         max_tokens: 2048,
@@ -20,7 +15,7 @@ export function claudeGlossModel(model: string): GlossModel {
         fallbacks: "default",
         // The gloss list never changes, so every piece after the first reuses it from the cache.
         cache_control: { type: "ephemeral" },
-        output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
+        output_config: { effort: "low", format: { type: "json_schema", schema: GLOSS_SCHEMA } },
         system,
         messages: [{ role: "user", content: sentence }],
       },
