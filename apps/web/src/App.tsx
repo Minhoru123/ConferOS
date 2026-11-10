@@ -107,6 +107,7 @@ export function App() {
   const [view, setView] = useState<View>("participant");
   const [name, setName] = useState(() => load("conferos-name", "John Doe"));
   const [draft, setDraft] = useState("");
+  const [aiThinking, setAiThinking] = useState(false);
   const [lang, setLang] = useState("en");
   const [translated, setTranslated] = useState<Record<string, string>>({});
   const [langNote, setLangNote] = useState("");
@@ -305,12 +306,19 @@ export function App() {
   }, [segments.length, paused, term, tab]);
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, tab]);
+    if (messages.at(-1)?.bot) setAiThinking(false);
+  }, [messages.length, tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!aiThinking) return;
+    const t = setTimeout(() => setAiThinking(false), 40000);
+    return () => clearTimeout(t);
+  }, [aiThinking]);
 
   const me = name.trim() || "John Doe";
   function send(textToSend: string) {
     const t = textToSend.trim();
     if (!t) return;
+    if (/^\s*(@ai|\/ask)\b/i.test(t)) setAiThinking(true);
     save("conferos-name", me);
     setDraft("");
     api.sendMessage(roomId, me, t, code).catch((e: Error) => setError(e.message));
@@ -695,8 +703,9 @@ export function App() {
                       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                         {m.bot && <Bot size={14} aria-hidden="true" className="text-primary" />}
                         <strong className="text-foreground">{m.bot ? "Backchannel AI" : m.author}</strong> · {clock(m.ts)}
+                        {m.bot && m.via && <span className="font-mono rounded border border-border px-1.5 text-[0.68rem]">{m.via}</span>}
                       </span>
-                      <p className={`rounded-2xl px-3 py-2 ${m.bot ? "border border-primary bg-accent" : mine ? "bg-primary text-primary-foreground" : "bg-muted"}`} style={{ fontSize: "calc(1rem * var(--scale))" }}>
+                      <p className={`whitespace-pre-line rounded-2xl px-3 py-2 ${m.bot ? "border border-primary bg-accent" : mine ? "bg-primary text-primary-foreground" : "bg-muted"}`} style={{ fontSize: "calc(1rem * var(--scale))" }}>
                         {m.text}
                       </p>
                       {m.bot && m.citations && m.citations.length > 0 && (
@@ -710,10 +719,15 @@ export function App() {
                     </div>
                   );
                 })}
+                {aiThinking && (
+                  <p role="status" className="inline-flex items-center gap-2 self-start rounded-2xl border border-primary bg-accent px-3 py-2 text-sm">
+                    <Bot size={16} aria-hidden="true" className="text-primary" /> Backchannel AI is reading the transcript<span className="live-dot text-primary" aria-hidden="true" />
+                  </p>
+                )}
                 <div ref={chatEndRef} />
               </div>
               <div className="flex flex-wrap gap-2 px-4 pb-2">
-                {["@ai When is lunch?", "@ai When do submissions close?"].map((s) => (
+                {["@ai Summarize what I missed", "@ai When is lunch?", "@ai When do submissions close?"].map((s) => (
                   <button key={s} onClick={() => send(s)} className="inline-flex min-h-10 items-center gap-1 rounded-full border border-border bg-background px-3 text-sm hover:border-primary">
                     <Bot size={14} aria-hidden="true" /> {s.replace("@ai ", "")}
                   </button>

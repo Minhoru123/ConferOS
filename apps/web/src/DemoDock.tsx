@@ -7,6 +7,7 @@ export type View = "participant" | "organizer";
 
 /** One-click questions that show what the AI can and cannot answer from the sample talk. */
 const SCENARIOS: [string, string][] = [
+  ["Summarize what happened so far", "summary"],
   ["When is lunch?", "schedule"],
   ["What do I need to submit?", "rules"],
   ["Where can I find a quiet space?", "access"],

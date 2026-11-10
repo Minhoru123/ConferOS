@@ -67,33 +67,70 @@ async function translateOne(text: string, target: string): Promise<string | null
   }
 }
 
+type Msg = { role: "system" | "user"; content: string };
 /**
- * With OPENAI_API_KEY set, the assistant writes a short answer from the retrieved lines only. Without it, or if the
- * call fails, it returns the best matching line. Either way, answers are grounded in what was said.
+ * A language model for grounded answers and summaries. Prefers a local Llama through Ollama (OLLAMA_URL, OLLAMA_MODEL),
+ * then OpenAI (OPENAI_API_KEY). Returns null when none is configured or the call fails, so callers fall back to
+ * quoting the transcript.
  */
-async function generate(question: string, lines: Segment[]): Promise<string | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(10000),
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: "You answer questions from conference attendees using ONLY the transcript lines provided. Answer in one or two short, plain sentences. If the lines do not contain the answer, reply exactly: That hasn't been said in this room yet." },
-          { role: "user", content: `Transcript lines:\n${lines.map((l) => `- ${l.speaker}: ${l.text}`).join("\n")}\n\nQuestion: ${question}` },
-        ],
-      }),
-    });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    return body.choices?.[0]?.message?.content?.trim() || null;
-  } catch {
-    return null;
+async function llm(messages: Msg[]): Promise<{ text: string; via: string } | null> {
+  const ollama = process.env.OLLAMA_URL;
+  if (ollama) {
+    const model = process.env.OLLAMA_MODEL ?? "llama3.2";
+    try {
+      const res = await fetch(`${ollama.replace(/\/$/, "")}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(Number(process.env.OLLAMA_TIMEOUT_MS ?? 25000)),
+        body: JSON.stringify({ model, messages, stream: false, options: { temperature: 0.2 } }),
+      });
+      const body = (await res.json()) as { message?: { content?: string } };
+      const text = body.message?.content?.trim();
+      if (res.ok && text) return { text, via: `${model.replace(/^llama(\d)/i, "Llama $1").replace(/:latest$/, "")} (local)` };
+    } catch {
+      /* fall through */
+    }
   }
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (apiKey) {
+    const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({ model, temperature: 0.2, messages }),
+      });
+      const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      const text = body.choices?.[0]?.message?.content?.trim();
+      if (res.ok && text) return { text, via: model };
+    } catch {
+      /* fall through */
+    }
+  }
+  return null;
+}
+const NOT_SAID = "That hasn't been said in this room yet.";
+const transcriptOf = (lines: Segment[]) => lines.map((l) => `[${new Date(l.ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Denver" })}] ${l.speaker}: ${l.text}`).join("\n");
+async function generate(question: string, lines: Segment[]) {
+  return llm([
+    { role: "system", content: `You answer questions from conference attendees using ONLY the transcript lines provided. Answer in one or two short, plain sentences. If the lines do not contain the answer, reply exactly: ${NOT_SAID}` },
+    { role: "user", content: `Transcript lines:\n${transcriptOf(lines)}\n\nQuestion: ${question}` },
+  ]);
+}
+/** "@ai summarize", "@ai what did I miss", "@ai recap so far" ask for a summary instead of an answer. */
+const SUMMARY = /\b(summar\w*|recap|catch me up|what did i miss|what happened|so far|tl;?dr)\b/i;
+async function summarize(lines: Segment[]): Promise<{ text: string; via?: string }> {
+  if (!lines.length) return { text: "Nothing has been said in this room yet." };
+  const recent = lines.slice(-80);
+  const out = await llm([
+    { role: "system", content: "You summarize a live conference room for an attendee who just looked up from their laptop. Use ONLY the transcript. Write 3 to 5 short bullet points starting with \"- \", most important first, keep times and places exactly as said. No preamble." },
+    { role: "user", content: `Transcript so far:\n${transcriptOf(recent)}` },
+  ]);
+  if (out) return out;
+  // Without a model: the lines that carry times, places or numbers are usually the ones people need.
+  const key = recent.filter((l) => /\d|o'clock|thirty|eleven|twelve|one|two|three|four|five|six|seven|left|right|back|front|room/i.test(l.text)).slice(-5);
+  return { text: (key.length ? key : recent.slice(-3)).map((l) => `- ${l.text}`).join("\n") };
 }
 
 /** Rooms as everyone may see them: no join codes, no private zones. */
@@ -149,7 +186,8 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
         const citations = hits.slice(0, 3).map((h) => ({ seq: h.seq, ts: h.ts, speaker: h.speaker }));
         const generated = await generate(question, hits);
         span.setAttribute("ask.mode", generated ? "generated" : "extractive");
-        if (generated) return { answer: generated, citations, mode: "generated" as const };
+        if (generated && generated.text.startsWith(NOT_SAID)) return { answer: generated.text, citations: [], mode: "generated" as const, via: generated.via };
+        if (generated) return { answer: generated.text, citations, mode: "generated" as const, via: generated.via };
         return { answer: hits[0]!.text, citations, mode: "extractive" as const };
       } finally {
         span.end();
@@ -294,8 +332,22 @@ export async function buildServer({ store, bus = new Bus<Segment>(), chat = new 
       const question = text.replace(AI_PREFIX, "").trim();
       chatAsks.add(1);
       statsFor(req.params.id).ai += 1;
-      const a = question ? await answer(req.params.id, question) : { answer: "Ask me about anything said in this room, for example: @ai when is lunch?", citations: [] };
-      postMessage(req.params.id, { author: "Backchannel AI", text: a.answer, bot: true, citations: a.citations });
+      if (SUMMARY.test(question)) {
+        const lines = await store.listSegments(req.params.id);
+        const sum = await tracer.startActiveSpan("ask.summarize", async (span) => {
+          try {
+            span.setAttributes({ "room.id": req.params.id, "summary.lines": lines.length });
+            return await summarize(lines);
+          } finally {
+            span.end();
+          }
+        });
+        const recent = lines.slice(-3).map((h) => ({ seq: h.seq, ts: h.ts, speaker: h.speaker }));
+        postMessage(req.params.id, { author: "Backchannel AI", text: sum.text, bot: true, citations: recent, ...(sum.via ? { via: sum.via } : {}) });
+      } else {
+        const a = question ? await answer(req.params.id, question) : { answer: "Ask me about anything said in this room, for example: @ai when is lunch? Or: @ai summarize what I missed.", citations: [] };
+        postMessage(req.params.id, { author: "Backchannel AI", text: a.answer, bot: true, citations: a.citations, ...("via" in a && a.via ? { via: a.via } : {}) });
+      }
     }
     return reply.code(201).send(msg);
   });

@@ -53,6 +53,8 @@ export interface ChatMessage {
   /** True for answers from the AI assistant. */
   bot?: boolean;
   citations?: Citation[];
+  /** Which model wrote a bot answer, for example "Llama 3.2 (local)". */
+  via?: string;
 }
 
 /** WebRTC signaling between the organizer's broadcast and each viewer, relayed over the room's live stream. */
@@ -74,4 +76,5 @@ export interface Answer {
   citations: Citation[];
   /** "extractive" returns the best matching line. An LLM answer mode comes later. */
   mode: "extractive" | "generated";
+  via?: string;
 }
