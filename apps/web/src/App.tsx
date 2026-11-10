@@ -200,7 +200,9 @@ export function App() {
     const full = text(s);
     if (!voice || !progress || progress.id !== s.id || progress.p >= 1) return full;
     const words = full.split(" ");
-    return words.slice(0, Math.max(1, Math.ceil(words.length * Math.min(1, progress.p * 1.08)))).join(" ");
+    // Trail the voice slightly, so a word never shows before it is heard.
+    const p = Math.max(0, progress.p - 0.08) * 0.97;
+    return words.slice(0, Math.max(1, Math.floor(words.length * Math.min(1, p)))).join(" ");
   };
   const text = (s: Segment) => (lang === "en" ? s.text : translated[`${lang}:${s.id}`] ?? s.text);
 
