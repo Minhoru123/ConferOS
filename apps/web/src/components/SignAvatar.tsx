@@ -42,7 +42,8 @@ export function SignAvatar({ roomId, code, on }: { roomId: string; code?: string
   return (
     <section aria-labelledby="s-h" hidden={!on} className="rounded-2xl border border-border bg-card p-4">
       <h3 id="s-h" className="pb-2 font-bold">Sign language avatar (experimental)</h3>
-      <div className="CWASAAvatar av0 mx-auto h-72 w-72 max-w-full" />
+      {/* Sized inline because the avatar's own stylesheet overrides utility classes, which collapsed it to 2px. */}
+      <div className="CWASAAvatar av0 mx-auto" style={{ width: 288, height: 288, maxWidth: "100%" }} />
       <p role="status" className="pt-2 text-sm">
         {status === "loading" && "Loading the avatar."}
         {status === "slow" && "Still loading the avatar. Keep this tab on screen."}
