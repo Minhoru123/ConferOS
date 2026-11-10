@@ -201,13 +201,18 @@ export function App() {
     if (!voice || !progress || progress.id !== s.id || progress.p >= 1) return full;
     const words = full.split(" ");
     // Trail the voice slightly, so a word never shows before it is heard.
-    const p = Math.max(0, progress.p - 0.08) * 0.97;
-    return words.slice(0, Math.max(1, Math.floor(words.length * Math.min(1, p)))).join(" ");
+    // Hold back the first third of the sentence, then trail the voice; the line completes only when the audio ends.
+    const p = Math.max(0, (progress.p - 0.35) / 0.65) * 0.8;
+    const n = Math.floor(words.length * Math.min(1, p));
+    return n ? `${words.slice(0, n).join(" ")}…` : "…";
   };
   const text = (s: Segment) => (lang === "en" ? s.text : translated[`${lang}:${s.id}`] ?? s.text);
 
   const upToNow = paused ? segments.slice(0, frozen) : segments;
-  const visible = term ? upToNow.filter((s) => text(s).toLowerCase().includes(term.toLowerCase()) || s.text.toLowerCase().includes(term.toLowerCase())) : upToNow;
+  // In the transcript, a sample line appears only after the voice has finished saying it, like a real transcriber.
+  const speakingSeg = voice && progress ? upToNow.find((x) => x.id === progress.id) : undefined;
+  const heard = speakingSeg ? upToNow.filter((x) => x.seq < speakingSeg.seq || (x.seq === speakingSeg.seq && progress!.p >= 1)) : upToNow;
+  const visible = term ? heard.filter((s) => text(s).toLowerCase().includes(term.toLowerCase()) || s.text.toLowerCase().includes(term.toLowerCase())) : heard;
   // With the sample voice on, the stage shows the line being spoken, not simply the newest one.
   const newest = upToNow.at(-1);
   const spokenIdx = voice && progress ? upToNow.findIndex((x) => x.id === progress.id) : -1;
